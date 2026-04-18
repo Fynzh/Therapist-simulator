@@ -298,7 +298,7 @@ def render_work_page():
                 st.session_state.excluded_q.append(q_id)
                 st.session_state.weight_stat
                 st.rerun()
-    col1, _, col2 = st.columns([3, 2, 1])
+    col1, col2 = st.columns(2)
     with col1:
         if st.button("Завершить работу (прогресс будет удален)", type="primary"):
             st.session_state.excluded_q = []
@@ -309,7 +309,7 @@ def render_work_page():
             st.session_state.page = "home"
             st.rerun()
     with col2:
-        if st.button("Закончить(сохранить прогресс)"):
+        if st.button("Закончить (сохранить прогресс)"):
             st.session_state[f"stat_c{st.session_state.work_id}"]
             st.session_state.excluded_q = []
             st.session_state.n_change = True
