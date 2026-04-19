@@ -15,7 +15,6 @@ def anti_none():
     if "excluded_q" not in st.session_state:
         st.session_state.excluded_q = []
 
-# --- КОНФИГУРАЦИЯ ---
 def init_paths() -> bool:
     # 1. Определяем базовую директорию
     current_dir = Path(__file__).resolve().parent
@@ -296,7 +295,7 @@ def render_work_page():
                 st.session_state.n = q_id
                 st.session_state.n_change = True
                 st.session_state.excluded_q.append(q_id)
-                st.session_state.weight_stat
+                #st.session_state.weight_stat
                 st.rerun()
     col1, col2 = st.columns(2)
     with col1:
