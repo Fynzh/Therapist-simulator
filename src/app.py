@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import time
+import random
 from pathlib import Path
 from streamlit_option_menu import option_menu
 
@@ -209,15 +210,40 @@ def export_stats() -> bool:
     )
     return True
 
-def get_top_questions(questions, limit=3):
-    sorted_questions = sorted(questions, key=lambda x: x[1].get('weight', 0), reverse=True)
+def get_top_questions(questions, limit=5):
+    # Превращаем в список кортежей (id, data) для удобства
+    items = questions
+    
+    # 1. Сортируем по категориям или весу
+    critical = [it for it in items if it[1].get('weight', 0) >= 8]
+    medium = [it for it in items if 4 <= it[1].get('weight', 0) < 8]
+    low_or_error = [it for it in items if it[1].get('weight', 0) < 4]
+    
+    # 2. Формируем выборку
+    selected = []
+    
+    # Берем 2 самых важных (чтобы не пропустить базу)
+    selected.extend(random.sample(critical, min(2, len(critical))))
+    
+    # Берем 2 средних (дифдиагноз)
+    selected.extend(random.sample(medium, min(2, len(medium))))
+    
+    # Добираем остальное до лимита из "шума" или оставшихся
+    remaining = [it for it in items if it not in selected]
+    needed = limit - len(selected)
+    if needed > 0:
+        selected.extend(random.sample(remaining, min(needed, len(remaining))))
+    
+    # Перемешиваем, чтобы важные вопросы не всегда были вверху списка
+    random.shuffle(selected)
+    
     return {
         orig_id: {
             "q": item["q"],
             "a": item["a"],
             "weight": item["weight"]
         }
-        for orig_id, item in sorted_questions[:limit]
+        for orig_id, item in selected
     }
 
 def calculate_score(case, asked_ids):
@@ -485,7 +511,7 @@ def _render_questions_stage(case):
         if item[0] not in st.session_state.excluded_q
     ]
     top_qst = get_top_questions(filtered)
-    
+    st.info(top_qst)
     _, col1, _ = st.columns([1, 5, 1])
     with col1:
         if top_qst:
