@@ -11,7 +11,7 @@ def anti_none():
         "page": "auth",
         "n": 0,
         "n_change": True,
-        "excluded_q": [],
+        "excluded_q": [0],
         "work_id": None,
         "path" : {},
         "ordered_exams": [],
@@ -137,7 +137,7 @@ def load_cases() -> dict:
                     "patronymic": data.get("patronymic"),
                     "age": data.get("age"),
                     "sex": data.get("sex"),
-                    "answer": data.get("answer")
+                    "correct_diagnosis": data.get("correct_diagnosis")
                 }
         except (json.JSONDecodeError, OSError) as e:
             print(f"Ошибка при чтении файла {file_path.name}: {e}")
@@ -152,7 +152,7 @@ def load_case(path):
         return None
 
 def reset_work_state():
-    st.session_state.excluded_q = []
+    st.session_state.excluded_q = [0]
     st.session_state.n = 0
     st.session_state.n_change = True
     st.session_state.ordered_exams = []
@@ -164,7 +164,7 @@ def reset_work_state():
 
 def _save_stat(case):
     score = calculate_score(case, st.session_state.excluded_q)
-    correct = case["answer"]
+    correct = case["correct_diagnosis"]
     user_diag = st.session_state.user_diagnosis.strip()
     if "current_stats" not in st.session_state:
         st.session_state.current_stats = {}
@@ -221,11 +221,11 @@ def get_top_questions(questions, limit=3):
     }
 
 def calculate_score(case, asked_ids):
-    if len(asked_ids) > 0:
-        score = (sum(case['questions'][q_id]['weight'] for q_id in asked_ids)) / len(asked_ids) * 100
-    else:
+    total = sum(q["weight"] for q in case["questions"])
+    user_weight = sum(case['questions'][q_id]['weight'] for q_id in asked_ids)
+    if total == 0:
         return 0
-    return round(score)
+    return round((user_weight / total) * 100)
 
 def sidebar_render():
     btn = lambda active: "secondary" if active else "tertiary"
@@ -304,7 +304,7 @@ def render_auth_page():
     with st.container():
         user_name = st.text_input(
             "Введите ваше имя или ID врача", 
-            placeholder="Иван Иванов",
+            placeholder="Логин",
             help="Это имя будет использоваться в отчетах и результатах кейсов"
         )
         
@@ -436,14 +436,13 @@ def _render_patient_card(case):
     with col1:
         st.image(ava_path, use_container_width=True)
     with col2:
-        st.markdown(f"""
-            ---
-            ##### **ФИО:** {case['last_name']} {case['first_name']} {case['patronymic']}
-            ##### **Возраст:** {case['age']} лет
-            ##### **Пол:** {case['sex']}
-            ##### **Жалобы:** *{case['history']}*
-            ---
-        """)
+        with st.container(border=True, height=250):
+            st.markdown(f"""
+                ##### **ФИО:** {case['last_name']} {case['first_name']} {case['patronymic']}
+                ##### **Возраст:** {case['age']} лет
+                ##### **Пол:** {case['sex']}
+                **Жалобы:** *{case['history']}*
+            """)
 
 def _render_questions_stage(case):
     _render_patient_card(case)
@@ -483,7 +482,7 @@ def _render_questions_stage(case):
     indexed_questions = list(enumerate(case["questions"]))
     filtered = [
         item for item in indexed_questions 
-        if item[0] not in st.session_state.excluded_q and item[1].get('weight', 0) >= 0
+        if item[0] not in st.session_state.excluded_q
     ]
     top_qst = get_top_questions(filtered)
     

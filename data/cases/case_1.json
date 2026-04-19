@@ -47,5 +47,5 @@
             "file_name": "case1_oark.csv"
         }
     ],
-    "answer": "Острый аппендицит"
+    "correct_diagnosis": "Острый аппендицит"
 }
