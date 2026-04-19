@@ -3,11 +3,12 @@
     "username": "Антон Крылов",
     "stats": {
         "1": {
-            "score": 95,
+            "score": 48,
             "asked_ids": [
                 1,
-                4,
-                2
+                3,
+                2,
+                4
             ],
             "ordered_exams": [],
             "user_diagnosis": "",
@@ -16,11 +17,10 @@
             "case_name": "Шварцнегер Арнольд Анатольевич"
         },
         "2": {
-            "score": 67,
+            "score": 37,
             "asked_ids": [
                 2,
-                4,
-                3
+                4
             ],
             "ordered_exams": [],
             "user_diagnosis": "",

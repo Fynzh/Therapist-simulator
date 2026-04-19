@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import time
 from pathlib import Path
 from streamlit_option_menu import option_menu
 
@@ -18,6 +19,7 @@ def anti_none():
         "stats": {},
         "auth": False,
         "user_f": None,
+        "anim_dia": False
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -111,7 +113,8 @@ def load_stats():
     if filepath and filepath.exists():
         try:
             user_data = json.loads(filepath.read_text(encoding="utf-8"))
-            return user_data.get("stats", {})
+            raw_stats = user_data.get("stats", {})
+            return {int(k): v for k, v in raw_stats.items() if k.isdigit()}
         except (json.JSONDecodeError, IOError):
             return {}
     else:
@@ -218,11 +221,11 @@ def get_top_questions(questions, limit=3):
     }
 
 def calculate_score(case, asked_ids):
-    total = sum(q["weight"] for q in case["questions"] if q.get("weight", 0) > 0)
-    user_weight = sum(case['questions'][q_id]['weight'] for q_id in asked_ids)
-    if total == 0:
+    if len(asked_ids) > 0:
+        score = (sum(case['questions'][q_id]['weight'] for q_id in asked_ids)) / len(asked_ids) * 100
+    else:
         return 0
-    return round((user_weight / total) * 100)
+    return round(score)
 
 def sidebar_render():
     btn = lambda active: "secondary" if active else "tertiary"
@@ -391,7 +394,6 @@ def render_home_page():
                     width="content"):
                     st.session_state.in_work = True
                     st.session_state.work_id = id
-                    
                     st.session_state.page = "work"
                     st.rerun()
                 
@@ -445,16 +447,38 @@ def _render_patient_card(case):
 
 def _render_questions_stage(case):
     _render_patient_card(case)
+    if "speed" in case:
+        speed = case["speed"]
+    else:
+        speed = 0.08
     with st.container(border=True):
         if st.session_state.n_change == True:
             n=st.session_state.n
+            q = case["questions"][n]
             if "dialog" not in st.session_state:
-                st.session_state.dialog = f"**{case['first_name']}:** {case["questions"][0]["a"]}"
+                st.session_state.dialog = ""
+                header = f"**{case['first_name']}:** "
             else:
-                q = case["questions"][n]
-                st.session_state.dialog += f"\n\n**Вы:** {q["q"]}   \n**{case['first_name']}:** {q["a"]}"
+                header = f"\n\n**Вы:** {q["q"]}   \n**{case['first_name']}:** "
+            
+            placeholder = st.empty()
+            full_response = ""
+            
+            st.session_state.anim_dia = True
+
+            for w in q["a"]:
+                full_response += w
+                # Показываем ВСЮ историю + то, что успело напечататься
+                placeholder.markdown(st.session_state.dialog + header + full_response)
+                time.sleep(speed)
+            
+            st.session_state.dialog += header + full_response
+            st.session_state.anim_dia = False
             st.session_state.n_change = False
-        st.markdown(st.session_state.dialog)
+            placeholder.empty()
+            st.rerun()
+        elif not st.session_state.anim_dia:
+            st.markdown(st.session_state.dialog)
     
     indexed_questions = list(enumerate(case["questions"]))
     filtered = [
@@ -502,7 +526,42 @@ def render_settings_page():
 
 def render_stats_page():
     st.title("📊 Статистика")
-    st.write("Тут будет прогресс обучения студента.")
+    stats = load_stats()
+
+    if not stats:
+        st.info("Вы ещё не завершили ни одного клинического случая.")
+        if st.button("Перейти к кейсам", type="primary"):
+            st.session_state.page = "home"
+            st.rerun()
+        return
+
+    last_id = st.session_state.get("last_stat_id")
+
+    for case_id, s in sorted(stats.items()):
+        with st.container(border=True):
+            if case_id == last_id:
+                st.markdown("### 🆕 Последний результат")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Пациент", s["case_name"])
+            with col2:
+                st.metric("Балл за опрос", f"{s['score']}%")
+            with col3:
+                verdict = "✅ Верно" if s["is_correct"] else "❌ Неверно"
+                st.metric("Диагноз", verdict)
+
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.markdown(f"**Ваш диагноз:** {s['user_diagnosis']}")
+            with col_d2:
+                if s["is_correct"]:
+                    st.success(f"**Правильный диагноз:** {s['correct_diagnosis']}")
+                else:
+                    st.error(f"**Правильный диагноз:** {s['correct_diagnosis']}")
+
+            exams_str = ", ".join(s["ordered_exams"]) if s["ordered_exams"] else "не назначены"
+            st.markdown(f"**Назначенные исследования:** {exams_str}")
 
 def main():
     anti_none()
