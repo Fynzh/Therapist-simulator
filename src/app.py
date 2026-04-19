@@ -4,23 +4,40 @@ from pathlib import Path
 from streamlit_option_menu import option_menu
 
 def anti_none():
-    if "in_work" not in st.session_state:
-        st.session_state.in_work = False
-    if "page" not in st.session_state:
-        st.session_state.page = "menu"
-    if "n" not in st.session_state:
-            st.session_state.n = 0
-    if "n_change" not in st.session_state:
-        st.session_state.n_change = True
-    if "excluded_q" not in st.session_state:
-        st.session_state.excluded_q = []
+    defaults = {
+        "in_work": False,
+        "page": "menu",
+        "n": 0,
+        "n_change": True,
+        "excluded_q": [],
+        "work_id": None,
+        "path" : {},
+        #"stage": "questions",
+        #"ordered_exams": [],
+        #"user_diagnosis": "",
+        "stats": {},
+        #"last_stat_id": None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+def reset_work_state():
+    st.session_state.excluded_q = []
+    st.session_state.n = 0
+    st.session_state.n_change = True
+    #st.session_state.stage = "questions"
+    #st.session_state.ordered_exams = []
+    #st.session_state.user_diagnosis = ""
+    st.session_state.in_work = False
+    st.session_state.work_id = None
+    if "dialog" in st.session_state:
+        del st.session_state["dialog"]
 
 def init_paths() -> bool:
-    # 1. Определяем базовую директорию
     current_dir = Path(__file__).resolve().parent
     base_dir = current_dir.parent if current_dir.name == "src" else current_dir
     data_dir = base_dir / "data"
-    # 2. Определяем структуру папок
     paths = {
         "data": data_dir,
         "cases": data_dir / "cases",
@@ -28,17 +45,12 @@ def init_paths() -> bool:
         "avatars": data_dir / "avatars",
         "users": data_dir / "users"
     }
-    
-    if "path" not in st.session_state:
-        st.session_state.path = {}
-    # 3. Проверяем наличие и сохраняем
     all_clear = True
     for key, path_obj in paths.items():
         if not path_obj.exists():
             st.error(f'❌ Критическая ошибка: Папка не найдена по пути: "{path_obj}"')
             all_clear = False
         else:
-            # Сохраняем путь в session_state (например: st.session_state.data_path)
             st.session_state.path[f"{key}"] = path_obj
             
     return all_clear
@@ -46,19 +58,12 @@ def init_paths() -> bool:
 def load_cases() -> dict:
     cases_dict = {}
     cases_path = st.session_state.path["cases"]
-
-    # Проверяем, существует ли папка и является ли она директорией
     if not cases_path.is_dir():
         print(f"Ошибка: Путь {cases_path} не найден или не является папкой.")
         return cases_dict
-
-    # Используем glob для фильтрации: файлы начинаются на case и заканчиваются на .json
-    for file_path in cases_path.glob("case*.json"):
+    for file_path in sorted(cases_path.glob("case*.json")):
         try:
-            # Path.read_text сам открывает и закрывает файл
-            content = file_path.read_text(encoding='utf-8')
-            data = json.loads(content)
-            
+            data = json.loads(file_path.read_text(encoding='utf-8'))
             case_id = data.get("id")
             if case_id is not None:
                 cases_dict[case_id] = {
@@ -71,7 +76,6 @@ def load_cases() -> dict:
                 }
         except (json.JSONDecodeError, OSError) as e:
             print(f"Ошибка при чтении файла {file_path.name}: {e}")
-
     return cases_dict
 
 def load_case(path):
@@ -82,55 +86,9 @@ def load_case(path):
         st.error(f"Ошибка чтения файла: {e}")
         return None
 
-def sidebar_render():
-    if st.session_state.page == "home":
-        if st.sidebar.button("Кабинет", type="secondary", width="stretch", icon=":material/cases:"):
-            st.session_state.page = "home"
-            st.rerun()
-    else:
-        if st.sidebar.button("Кабинет", type="tertiary", width="stretch", icon=":material/cases:"):
-            st.session_state.page = "home"
-            st.rerun()
-    if st.session_state.in_work == True:
-        if st.session_state.page == "work":
-            if st.sidebar.button("Приемная", type="secondary", width="stretch", icon=":material/person_alert:"):
-                st.session_state.page = "work"
-                st.rerun()
-        else:
-            if st.sidebar.button("Приемная", type="tertiary", width="stretch", icon=":material/person_alert:"):
-                st.session_state.page = "work"
-                st.rerun()
-    if st.session_state.page == "settings":
-        if st.sidebar.button("Настройки", type="secondary", width="stretch", icon=":material/settings:"):
-            st.session_state.page = "settings"
-            st.rerun()
-    else:
-        if st.sidebar.button("Настройки", type="tertiary", width="stretch", icon=":material/settings:"):
-            st.session_state.page = "settings"
-            st.rerun()
-    if st.session_state.page == "stats":
-        if st.sidebar.button("Статистика", type="secondary", width="stretch", icon=":material/query_stats:"):
-            st.session_state.page = "stats"
-            st.rerun()
-    else:
-        if st.sidebar.button("Статистика", type="tertiary", width="stretch", icon=":material/query_stats:"):
-            st.session_state.page = "stats"
-            st.rerun()
-    if st.sidebar.button("Выйти", type="primary", width="stretch", icon=":material/close:"):
-        st.session_state.clear()
-        st.rerun()
-
 def get_top_questions(questions, limit=3):
-    # 2. Сортируем по весу (weight) в обратном порядке (от большего к меньшему)
-    # x[1] — это сам словарь вопроса, x[1]['weight'] — его вес
-    sorted_questions = sorted(
-        questions, 
-        key=lambda x: x[1].get('weight', 0), 
-        reverse=True
-    )
-    
-    # 3. Берем первые 5 и собираем в нужный формат словаря
-    top_dict = {
+    sorted_questions = sorted(questions, key=lambda x: x[1].get('weight', 0), reverse=True)
+    return {
         orig_id: {
             "q": item["q"],
             "a": item["a"],
@@ -138,51 +96,49 @@ def get_top_questions(questions, limit=3):
         }
         for orig_id, item in sorted_questions[:limit]
     }
-    
-    return top_dict
 
 def calculate_score(case, asked_ids):
-    # Сумма весов всех возможных вопросов в кейсе
-    total_possible_weight = sum(q['weight'] for q in case['questions'])
-    
-    # Сумма весов только тех вопросов, которые задал пользователь
+    total = sum(q["weight"] for q in case["questions"] if q.get("weight", 0) > 0)
     user_weight = sum(case['questions'][q_id]['weight'] for q_id in asked_ids)
-    
-    if total_possible_weight == 0: return 0
-    return round((user_weight / total_possible_weight) * 100)
+    if total == 0:
+        return 0
+    return round((user_weight / total) * 100)
 
-def main():
-    anti_none()
-    if not init_paths():
-        st.session_state.page = "error"
-        render_error_page()
-    if st.session_state.page == "error":
-        render_error_page()
-    sidebar_render()
-    if st.session_state.page == "menu":
-        render_menu_page()
-    elif st.session_state.page == "home":
-        render_home_page()
-    elif st.session_state.page == "work":
-        render_work_page()
-    elif st.session_state.page == "settings":
-        render_settings_page()
-    elif st.session_state.page == "stats":
-        render_stats_page()
+def sidebar_render():
+    btn = lambda active: "secondary" if active else "tertiary"
+    if st.sidebar.button("Кабинет", type=btn(st.session_state.page == "home"),
+                         width="stretch", icon=":material/cases:"):
+        st.session_state.page = "home"
+        st.rerun()
+    if st.session_state.in_work:
+        if st.sidebar.button("Приёмная", type=btn(st.session_state.page == "work"),
+                             width="stretch", icon=":material/person_alert:"):
+            st.session_state.page = "work"
+            st.rerun()
+    if st.sidebar.button("Настройки", type=btn(st.session_state.page == "settings"),
+                         width="stretch", icon=":material/settings:"):
+        st.session_state.page = "settings"
+        st.rerun()
+    if st.sidebar.button("Статистика", type=btn(st.session_state.page == "stats"),
+                         width="stretch", icon=":material/query_stats:"):
+        st.session_state.page = "stats"
+        st.rerun()
+    if st.sidebar.button("Выйти", type="primary", width="stretch", icon=":material/close:"):
+        st.session_state.clear()
+        st.rerun()
+
+# ---------------------------------------------------------------------------
+# Pages
+# ---------------------------------------------------------------------------
 
 def render_error_page():
     st.markdown("<h1 style='text-align: center;'>🚨 Системный сбой</h1>", unsafe_allow_html=True)
-    
     st.divider()
-    error_message = ""
-    # Основной блок с пояснением
     st.error(f"""
     **Обнаружена критическая ошибка конфигурации среды.**
     
     Приложению не удалось получить доступ к необходимым ресурсам. Это может быть связано с отсутствием важных папок или повреждением структуры данных.
     """)
-
-    # Инструкция для пользователя
     with st.container(border=True):
         st.markdown("""
         ### 🛠 Что делать?
@@ -190,20 +146,14 @@ def render_error_page():
         2. **Перезапустите сервер:** Попробуйте остановить Streamlit (Ctrl+C в терминале) и запустить его снова.
         3. **Свяжитесь с разработчиком:** Если вы обычный пользователь, сообщите разработчику код ошибки выше.
         """)
-
-    # Кнопка быстрой попытки перезапуска (просто обновит страницу)
     if st.button("Попробовать снова", icon=":material/refresh:", type="primary"):
         st.session_state.clear()
         st.rerun()
-
     st.info("Работа симулятора приостановлена для предотвращения повреждения базы данных пациентов.", icon=":material/lock:")
     st.stop()
 
 def render_menu_page():
-    st.title("Добро пожаловать!")
     st.title(":material/medical_services: Терапевтический симулятор")
-    
-    # Приветственный текст
     st.markdown("""
     ### Добро пожаловать в систему интерактивного обучения!
     
@@ -224,46 +174,78 @@ def render_menu_page():
         st.session_state.page = "home"
         st.rerun()
 
-    # Можно добавить визуальный разделитель и какие-то метрики/статусы
     st.divider()
-    
+    cases_path = st.session_state.path.get("cases")
+    cases_count = len(list(cases_path.glob("case*.json"))) if cases_path else 0
+    stats = st.session_state.get("stats", {})
+    completed = len(stats)
+    avg_score = (
+        round(sum(s["score"] for s in stats.values()) / completed)
+        if completed > 0 else "—"
+    )
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric(label="Доступно кейсов", value="xxx")
+        st.metric(label="Доступно кейсов", value=cases_count)
     with col2:
-        st.metric(label="Сложность", value="xxx")
+        st.metric(label="Завершено", value=completed)
     with col3:
-        st.metric(label="Ваш статус", value="xxx")
+        st.metric(label="Средний балл", value=avg_score)
 
 def render_home_page():
     st.title("💼 Мой кабинет")
+    if st.session_state.in_work:
+        st.info("У вас есть незавершённый приём. Перейдите в **Приёмную** или завершите работу с пациентом.")
     st.markdown("### Выберите клинический случай")
     cases = load_cases()
+    stats = st.session_state.get("stats", {})
     for id, case in cases.items():
         col1, col2 = st.columns([9, 1])
+        full_name = f"{case['last_name']} {case['first_name'][0]}. {case["patronymic"][0]}."
         with col1:
-            if st.session_state.in_work == False:
+            if st.session_state.in_work:
+                if st.session_state.work_id == id:
+                    if st.button(
+                        f"{id:<3} | {full_name:^50} | {(str(case['age'])+" лет"):^30} | {"▶   Продолжить":^30}".replace(" ", "\u00A0"),
+                        type="primary", width="content"):
+                        st.session_state.page = "work"
+                        st.rerun()
+                else:
+                    st.button(
+                    f"{id:<3} | {full_name:^50} | {(str(case['age'])+" лет"):^30} | {"🔒   Недоступно":^30}".replace(" ", "\u00A0"),
+                    key=f"case_btn_{id}",
+                    width="content", 
+                    disabled=True)
+            else:
+                btn_stat = lambda finish: "🔄   Еще раз" if finish else "📋   Начать"
                 if st.button(
-                    f"{id:<3} | {(f"{case['last_name']} {case['first_name'][0]}. {case["patronymic"][0]}."):^50} | {(str(case['age'])+" лет"):^30}".replace(" ", "\u00A0"),
-                    width="content"
-                ):
+                    f"{id:<3} | {full_name:^50} | {(str(case['age'])+" лет"):^30} | {btn_stat(id in stats):^30}".replace(" ", "\u00A0"),
+                    key=f"case_btn_{id}",
+                    width="content"):
                     st.session_state.in_work = True
                     st.session_state.work_id = id
                     st.session_state.page = "work"
                     st.rerun()
-            else:
-                if st.button(
-                    f"{id:<3} | {(f"{case['last_name']} {case['first_name'][0]}. {case["patronymic"][0]}."):^50} | {(str(case['age'])+" лет"):^30}".replace(" ", "\u00A0"),
-                    width="content", 
-                    disabled=True
-                ):
-                    pass
+                
         with col2:
-            st.markdown(f"0%")
+            if id in stats:
+                st.markdown(f"**{stats[id]['score']}%**")
+            else:
+                st.markdown("—")
 
 def render_work_page():
-    st.title(f"🩺 Ваш приемный кабинет")
+    if st.session_state.work_id is None:
+        st.session_state.page = "home"
+        st.session_state.in_work = False
+        st.rerun()
+        return
     case = load_case(st.session_state.path["cases"] / f"case_{st.session_state.work_id}.json")
+    if case is None:
+        st.error("Не удалось загрузить данные пациента.")
+        return
+    
+    
+    
+    st.title(f"🩺 Ваш приемный кабинет")
     ava_path = str(st.session_state.path["avatars"] / case["img"])
     col1, _, col2 = st.columns([20, 1, 29])
     with col1:
@@ -288,7 +270,10 @@ def render_work_page():
     _, col1, _ = st.columns([1, 5, 1])
     with col1:
         indexed_questions = list(enumerate(case["questions"]))
-        filtered = [item for item in indexed_questions if item[0] not in st.session_state.excluded_q]
+        filtered = [
+            item for item in indexed_questions 
+            if item[0] not in st.session_state.excluded_q and item[1].get('weight', 0) >= 0
+        ]
         top_qst = get_top_questions(filtered)
         for q_id, q_item in top_qst.items():
             if st.button(f"{q_item['q']}", use_container_width=True):
@@ -366,6 +351,25 @@ def render_patient_screen(data):
             st.write(chat['q'])
         with st.chat_message("assistant"):
             st.write(chat['a'])
+
+def main():
+    anti_none()
+    if not init_paths():
+        st.session_state.page = "error"
+        render_error_page()
+    if st.session_state.page == "error":
+        render_error_page()
+    sidebar_render()
+    if st.session_state.page == "menu":
+        render_menu_page()
+    elif st.session_state.page == "home":
+        render_home_page()
+    elif st.session_state.page == "work":
+        render_work_page()
+    elif st.session_state.page == "settings":
+        render_settings_page()
+    elif st.session_state.page == "stats":
+        render_stats_page()
 
 # Запуск программы
 if __name__ == "__main__":
