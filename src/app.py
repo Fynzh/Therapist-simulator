@@ -3,39 +3,28 @@ import json
 from pathlib import Path
 from streamlit_option_menu import option_menu
 
+
 def anti_none():
     defaults = {
         "in_work": False,
-        "page": "menu",
+        "page": "auth",
         "n": 0,
         "n_change": True,
         "excluded_q": [],
         "work_id": None,
         "path" : {},
-        #"stage": "questions",
-        #"ordered_exams": [],
-        #"user_diagnosis": "",
+        "ordered_exams": [],
+        "user_diagnosis": "",
         "stats": {},
+        "auth": False,
+        "user_f": None,
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-def reset_work_state():
-    st.session_state.excluded_q = []
-    st.session_state.n = 0
-    st.session_state.n_change = True
-    #st.session_state.stage = "questions"
-    #st.session_state.ordered_exams = []
-    #st.session_state.user_diagnosis = ""
-    st.session_state.in_work = False
-    st.session_state.work_id = None
-    if "dialog" in st.session_state:
-        del st.session_state["dialog"]
-
-def init_paths() -> bool:
-    current_dir = Path(__file__).resolve().parent
+def init_paths(current_dir = Path(__file__).resolve().parent) -> bool:
     base_dir = current_dir.parent if current_dir.name == "src" else current_dir
     data_dir = base_dir / "data"
     paths = {
@@ -54,6 +43,79 @@ def init_paths() -> bool:
             st.session_state.path[f"{key}"] = path_obj
             
     return all_clear
+
+def _logout():
+    st.session_state.auth = False
+    st.session_state.user_f = None
+    st.session_state.page = "auth"
+    st.rerun
+
+def _login(username) -> bool:
+    # 1. Определяем путь к папке как объект Path
+    users_dir = st.session_state.path["users"]
+    
+    # 2. Поиск существующего пользователя
+    # .glob('*.json') находит все файлы с расширением .json
+    for user_file in users_dir.glob("*.json"):
+        try:
+            # .read_text() сам открывает и закрывает файл
+            data = json.loads(user_file.read_text(encoding="utf-8"))
+            if data.get("username") == username:
+                # .name возвращает только имя файла (напр. "user_001.json")
+                st.session_state.user_f = st.session_state.path["users"] / user_file.name
+                return True
+        except (json.JSONDecodeError, IOError):
+            st.info("1")
+            return False
+
+    # 3. Создание нового пользователя, если не нашли
+    user_files = list(users_dir.glob("user_*.json"))
+    
+    if not user_files:
+        new_id = 1
+    else:
+        # Извлекаем числа из имен файлов
+        # f.stem — это имя файла без расширения ("user_001")
+        existing_ids = []
+        for f in user_files:
+            try:
+                num = int(f.stem.split('_')[1])
+                existing_ids.append(num)
+            except (IndexError, ValueError):
+                st.info("2")
+                return False
+        new_id = max(existing_ids) + 1 if existing_ids else len(user_files) + 1
+
+    # Формируем путь к новому файлу
+    new_file_name = f"user_{new_id}.json"
+    new_path = users_dir / new_file_name
+    
+    new_user_data = {
+        "id": new_id,
+        "username": username,
+        "stats": {},
+        "created_at": "2026-04-19"
+    }
+    
+    # Записываем данные в файл
+    new_path.write_text(
+        json.dumps(new_user_data, ensure_ascii=False, indent=4), 
+        encoding="utf-8"
+    )
+    
+    st.session_state.user_f = st.session_state.path["users"] / new_file_name
+    return True
+
+def load_stats():
+    filepath = st.session_state.user_f
+    if filepath and filepath.exists():
+        try:
+            user_data = json.loads(filepath.read_text(encoding="utf-8"))
+            return user_data.get("stats", {})
+        except (json.JSONDecodeError, IOError):
+            return {}
+    else:
+        return {}
 
 def load_cases() -> dict:
     cases_dict = {}
@@ -85,6 +147,64 @@ def load_case(path):
     except Exception as e:
         st.error(f"Ошибка чтения файла: {e}")
         return None
+
+def reset_work_state():
+    st.session_state.excluded_q = []
+    st.session_state.n = 0
+    st.session_state.n_change = True
+    st.session_state.ordered_exams = []
+    st.session_state.user_diagnosis = ""
+    st.session_state.in_work = False
+    st.session_state.work_id = None
+    if "dialog" in st.session_state:
+        del st.session_state["dialog"]
+
+def _save_stat(case):
+    score = calculate_score(case, st.session_state.excluded_q)
+    correct = case["answer"]
+    user_diag = st.session_state.user_diagnosis.strip()
+    if "current_stats" not in st.session_state:
+        st.session_state.current_stats = {}
+    st.session_state.current_stats = {
+        "score": score,
+        "asked_ids": list(st.session_state.excluded_q),
+        "ordered_exams": list(st.session_state.ordered_exams),
+        "user_diagnosis": user_diag,
+        "correct_diagnosis": correct,
+        "is_correct": user_diag.lower() == correct.lower(),
+        "case_name": f"{case['last_name']} {case['first_name']} {case['patronymic']}",
+    }
+
+def export_stats() -> bool:
+    filepath = st.session_state.user_f
+    if not filepath or not filepath.exists():
+        st.error("Ошибка записи данных, пользователь не авторизован")
+        _logout()
+        return False
+    if "current_stats" not in st.session_state:
+        st.error("Ошибка записи данных, статистика отсутствует")
+        return False
+    
+    try:
+        user_data = json.loads(filepath.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        st.error("Ошибка записи данных, пожалуйста, авторизуйтесь повторно.")
+        _logout()
+        return False
+
+    # 3. Записываем текущую статистику под ключом айди кейса
+    if "stats" not in user_data:
+        user_data["stats"] = {}
+    
+    # Просто копируем уже готовый словарь из сессии
+    user_data["stats"][str(st.session_state.work_id)] = st.session_state.current_stats
+
+    # 4. Сохраняем файл обратно
+    filepath.write_text(
+        json.dumps(user_data, ensure_ascii=False, indent=4), 
+        encoding="utf-8"
+    )
+    return True
 
 def get_top_questions(questions, limit=3):
     sorted_questions = sorted(questions, key=lambda x: x[1].get('weight', 0), reverse=True)
@@ -152,6 +272,54 @@ def render_error_page():
     st.info("Работа симулятора приостановлена для предотвращения повреждения базы данных пациентов.", icon=":material/lock:")
     st.stop()
 
+def render_auth_page():
+    st.title(":material/medical_services: Терапевтический симулятор")
+    st.subheader("Добро пожаловать в систему симуляции клинических случаев")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("""
+        Этот симулятор разработан для отработки навыков:
+        * **Сбора анамнеза** (выбор правильных вопросов пациенту)
+        * **Физикального осмотра** и интерпретации анализов
+        * **Постановки диагноза** на основе клинических рекомендаций
+        
+        *Ваша задача: макимально точно определить патологию, минимизировав лишние назначения.*
+        """)
+    
+    with col2:
+        # Можно добавить иконку или декоративный элемент
+        st.info("📊 Статистика ваших приемов будет сохраняться в личный профиль.")
+
+    st.divider()
+
+    # 3. Форма авторизации
+    st.write("### Вход в систему")
+    
+    # Создаем контейнер, чтобы ограничить ширину поля ввода
+    with st.container():
+        user_name = st.text_input(
+            "Введите ваше имя или ID врача", 
+            placeholder="Иван Иванов",
+            help="Это имя будет использоваться в отчетах и результатах кейсов"
+        )
+        
+        # Кнопка входа
+        if st.button("Войти в кабинет", type="primary", use_container_width=True):
+            if user_name.strip():
+                # Сохраняем имя и переключаем страницу
+                if _login(user_name):
+                    st.session_state.auth = True
+                    st.session_state.page = "menu"
+                    st.success(f"Доктор {user_name}, добро пожаловать на смену!")
+                    st.rerun()
+                else:
+                    st.error("Ошибка авторизации, попробуйте снова.")
+            else:
+                st.error("Пожалуйста, введите имя, чтобы продолжить.")
+    st.stop()
+
 def render_menu_page():
     st.title(":material/medical_services: Терапевтический симулятор")
     st.markdown("""
@@ -197,7 +365,7 @@ def render_home_page():
         st.info("У вас есть незавершённый приём. Перейдите в **Приёмную** или завершите работу с пациентом.")
     st.markdown("### Выберите клинический случай")
     cases = load_cases()
-    stats = st.session_state.get("stats", {})
+    stats = load_stats()
     for id, case in cases.items():
         col1, col2 = st.columns([9, 1])
         full_name = f"{case['last_name']} {case['first_name'][0]}. {case["patronymic"][0]}."
@@ -223,6 +391,7 @@ def render_home_page():
                     width="content"):
                     st.session_state.in_work = True
                     st.session_state.work_id = id
+                    
                     st.session_state.page = "work"
                     st.rerun()
                 
@@ -233,6 +402,7 @@ def render_home_page():
                 st.markdown("—")
 
 def render_work_page():
+    st.title(f"🩺 Ваш приемный кабинет")
     if st.session_state.work_id is None:
         st.session_state.page = "home"
         st.session_state.in_work = False
@@ -242,10 +412,23 @@ def render_work_page():
     if case is None:
         st.error("Не удалось загрузить данные пациента.")
         return
-    
-    
-    
-    st.title(f"🩺 Ваш приемный кабинет")
+    st.markdown("""
+        <style>
+        button[data-baseweb="tab"] {
+            flex-grow: 1;
+            text-align: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    tab1, tab2, tab3 = st.tabs(["💬 Опрос", "🔬 Лаборатория", "📋 Заключение"])
+    with tab1:
+        _render_questions_stage(case)
+    with tab2:
+        _render_exams_stage(case)
+    with tab3:
+        _render_diagnosis_stage(case)
+
+def _render_patient_card(case):
     ava_path = str(st.session_state.path["avatars"] / case["img"])
     col1, _, col2 = st.columns([20, 1, 29])
     with col1:
@@ -254,54 +437,64 @@ def render_work_page():
         st.markdown(f"""
             ---
             ##### **ФИО:** {case['last_name']} {case['first_name']} {case['patronymic']}
-            ##### **Возраст:** {case['age']}
+            ##### **Возраст:** {case['age']} лет
             ##### **Пол:** {case['sex']}
             ##### **Жалобы:** *{case['history']}*
             ---
         """)
+
+def _render_questions_stage(case):
+    _render_patient_card(case)
     with st.container(border=True):
         if st.session_state.n_change == True:
+            n=st.session_state.n
             if "dialog" not in st.session_state:
-                st.session_state.dialog = f"**{case['first_name']}:** {case["questions"][st.session_state.n]["a"]}"
+                st.session_state.dialog = f"**{case['first_name']}:** {case["questions"][0]["a"]}"
             else:
-                st.session_state.dialog += f"\n\n**Вы:** {case["questions"][st.session_state.n]["q"]}   \n**{case['first_name']}:** {case["questions"][st.session_state.n]["a"]}"
+                q = case["questions"][n]
+                st.session_state.dialog += f"\n\n**Вы:** {q["q"]}   \n**{case['first_name']}:** {q["a"]}"
             st.session_state.n_change = False
         st.markdown(st.session_state.dialog)
+    
+    indexed_questions = list(enumerate(case["questions"]))
+    filtered = [
+        item for item in indexed_questions 
+        if item[0] not in st.session_state.excluded_q and item[1].get('weight', 0) >= 0
+    ]
+    top_qst = get_top_questions(filtered)
+    
     _, col1, _ = st.columns([1, 5, 1])
     with col1:
-        indexed_questions = list(enumerate(case["questions"]))
-        filtered = [
-            item for item in indexed_questions 
-            if item[0] not in st.session_state.excluded_q and item[1].get('weight', 0) >= 0
-        ]
-        top_qst = get_top_questions(filtered)
-        for q_id, q_item in top_qst.items():
-            if st.button(f"{q_item['q']}", use_container_width=True):
-                st.session_state.n = q_id
-                st.session_state.n_change = True
-                st.session_state.excluded_q.append(q_id)
-                #st.session_state.weight_stat
-                st.rerun()
+        if top_qst:
+            for q_id, q_item in top_qst.items():
+                if st.button(q_item['q'], use_container_width=True, key=f"q_{q_id}"):
+                    st.session_state.n = q_id
+                    st.session_state.n_change = True
+                    st.session_state.excluded_q.append(q_id)
+                    _save_stat(case)
+                    st.rerun()
+        else:
+            st.info("Все доступные вопросы заданы.")
+    
+def _render_exams_stage(case):
+    pass
+
+def _render_diagnosis_stage(case):
+    st.divider()
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Завершить работу (прогресс будет удален)", type="primary"):
-            st.session_state.excluded_q = []
-            st.session_state.n_change = True
-            st.session_state.n = 0
-            del st.session_state["dialog"]
-            st.session_state.in_work = False
+        if st.button("❌ Завершить без сохранения", type="secondary"):
+            st.session_state.stats.pop(st.session_state.work_id, None)
+            reset_work_state()
             st.session_state.page = "home"
             st.rerun()
     with col2:
-        if st.button("Закончить (сохранить прогресс)"):
-            st.session_state[f"stat_c{st.session_state.work_id}"]
-            st.session_state.excluded_q = []
-            st.session_state.n_change = True
-            st.session_state.n = 0
-            del st.session_state["dialog"]
-            st.session_state.in_work = False
-            st.session_state.page = "stats"
-            st.rerun()
+        if st.button("🏁 Закончить прием", type="primary"):
+            _save_stat(case)
+            if export_stats():
+                reset_work_state()
+                st.session_state.page = "stats"
+                st.rerun()
 
 def render_settings_page():
     st.title("⚙️ Настройки")
@@ -311,47 +504,6 @@ def render_stats_page():
     st.title("📊 Статистика")
     st.write("Тут будет прогресс обучения студента.")
 
-def render_patient_screen(data):
-    """Отвечает только за отображение данных конкретного пациента."""
-    st.title(f"Клинический случай: {data.get('patient_name', 'Неизвестный')}")
-    
-    with st.expander("📝 Анамнез", expanded=True):
-        st.write(data.get('history', 'История отсутствует.'))
-
-    # Инициализация сессии для чата
-    case_key = f"chat_{data.get('id', 'default')}"
-    if case_key not in st.session_state:
-        st.session_state[case_key] = []
-
-    # Логика вопросов
-    st.divider()
-    st.subheader("🗣️ Диалог")
-    
-    # Собираем вопросы
-    questions = data.get('questions_id', {})
-    all_q = questions.get('high', []) + questions.get('low', [])
-    
-    asked = [q['q'] for q in st.session_state[case_key]]
-    available = [q['q'] for q in all_q if q['q'] not in asked]
-
-    if available:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            choice = st.selectbox("Задать вопрос:", ["-- Выберите --"] + available)
-        with col2:
-            st.write("") # Отступ
-            if st.button("Спросить") and choice != "-- Выберите --":
-                q_obj = next(q for q in all_q if q['q'] == choice)
-                st.session_state[case_key].append(q_obj)
-                st.rerun()
-    
-    # Отображение истории
-    for chat in st.session_state[case_key]:
-        with st.chat_message("user"):
-            st.write(chat['q'])
-        with st.chat_message("assistant"):
-            st.write(chat['a'])
-
 def main():
     anti_none()
     if not init_paths():
@@ -359,6 +511,8 @@ def main():
         render_error_page()
     if st.session_state.page == "error":
         render_error_page()
+    elif st.session_state.page == "auth":
+        render_auth_page()
     sidebar_render()
     if st.session_state.page == "menu":
         render_menu_page()
