@@ -4,7 +4,6 @@ import time
 import random
 from pathlib import Path
 
-
 def anti_none():
     defaults = {
         "in_work": False,
@@ -20,7 +19,8 @@ def anti_none():
         "auth": False,
         "user_f": None,
         "anim_dia": False,
-        "top_qst": {}
+        "top_qst": {},
+        "dialog": ""
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -66,9 +66,9 @@ def _login(username) -> bool:
             if data.get("username") == username:
                 # .name возвращает только имя файла (напр. "user_001.json")
                 st.session_state.user_f = st.session_state.path["users"] / user_file.name
+                _load_progress()
                 return True
         except (json.JSONDecodeError, IOError):
-            st.info("1")
             return False
 
     # 3. Создание нового пользователя, если не нашли
@@ -85,7 +85,6 @@ def _login(username) -> bool:
                 num = int(f.stem.split('_')[1])
                 existing_ids.append(num)
             except (IndexError, ValueError):
-                st.info("2")
                 return False
         new_id = max(existing_ids) + 1 if existing_ids else len(user_files) + 1
 
@@ -179,6 +178,27 @@ def _save_stat(case):
         "case_name": f"{case['last_name']} {case['first_name']} {case['patronymic']}",
     }
 
+def _save_progress():
+    progress_info = [
+        "in_work", "page", "n", "n_change", "excluded_q",
+        "work_id", "ordered_exams", "user_diagnosis",
+        "stats", "anim_dia", "top_qst", "dialog"
+        ]
+    progress = {}
+    for inf in progress_info:
+        if inf not in progress and inf in st.session_state:
+            progress[inf] = st.session_state[inf]
+    _export(progress = progress)
+
+def _load_progress():
+    loads = _import("progress")
+    try:
+        for key, value in loads.items():
+            if key not in st.session_state or not st.session_state[key] == value:
+                st.session_state[key] = value
+    except:
+        st.error("Ошибка загрузки предыдущей сессии")
+
 def _export(**info) -> bool:
     filepath = st.session_state.user_f
     if not filepath or not filepath.exists():
@@ -208,6 +228,17 @@ def _export(**info) -> bool:
         encoding="utf-8"
     )
     return True
+
+def _import(data):
+    filepath = st.session_state.user_f
+    if filepath and filepath.exists():
+        try:
+            user_data = json.loads(filepath.read_text(encoding="utf-8"))
+            return user_data.get(data)
+        except (json.JSONDecodeError, IOError):
+            return None
+    else:
+        return None
 
 def get_top_questions(questions, limit=5):
     # Превращаем в список кортежей (id, data) для удобства
@@ -247,7 +278,7 @@ def get_top_questions(questions, limit=5):
 
 def calculate_score(case, asked_ids):
     total = sum(q["weight"] for q in case["questions"])
-    user_weight = sum(case['questions'][q_id]['weight'] for q_id in asked_ids)
+    user_weight = sum(case['questions'][int(q_id)]['weight'] for q_id in asked_ids)
     if total == 0:
         return 0
     return round((user_weight / total) * 100)
@@ -271,7 +302,8 @@ def sidebar_render():
                          width="stretch", icon=":material/query_stats:"):
         st.session_state.page = "stats"
         st.rerun()
-    if st.sidebar.button("Выйти", type="primary", width="stretch", icon=":material/close:"):
+    if st.sidebar.button("Сохранить и выйти", type="primary", width="stretch", icon=":material/close:"):
+        _save_progress()
         st.session_state.clear()
         st.rerun()
 
@@ -334,7 +366,7 @@ def render_auth_page():
         )
         
         # Кнопка входа
-        if st.button("Войти в кабинет", type="primary", use_container_width=True):
+        if st.button("Войти в кабинет", type="primary", width="stretch"):
             if user_name.strip():
                 # Сохраняем имя и переключаем страницу
                 if _login(user_name):
@@ -459,7 +491,7 @@ def _render_patient_card(case):
     ava_path = str(st.session_state.path["avatars"] / case["img"])
     col1, _, col2 = st.columns([20, 1, 29])
     with col1:
-        st.image(ava_path, use_container_width=True)
+        st.image(ava_path, width="stretch")
     with col2:
         with st.container(border=True, height=250):
             st.markdown(f"""
@@ -518,7 +550,7 @@ def _render_questions_stage(case):
     with col1:
         if st.session_state.top_qst:
             for q_id, q_item in st.session_state.top_qst.items():
-                if st.button(q_item['q'], use_container_width=True, key=f"q_{q_id}"):
+                if st.button(q_item['q'], width="stretch", key=f"q_{q_id}"):
                     st.session_state.n = q_id
                     st.session_state.n_change = True
                     st.session_state.excluded_q.append(q_id)
