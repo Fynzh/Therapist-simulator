@@ -169,7 +169,7 @@ def _save_stat(case):
     user_diag = st.session_state.user_diagnosis.strip()
     if "current_stats" not in st.session_state:
         st.session_state.current_stats = {}
-    st.session_state.current_stats = {
+    st.session_state.current_stats[st.session_state.work_id] = {
         "score": score,
         "asked_ids": list(st.session_state.excluded_q),
         "ordered_exams": list(st.session_state.ordered_exams),
@@ -179,7 +179,7 @@ def _save_stat(case):
         "case_name": f"{case['last_name']} {case['first_name']} {case['patronymic']}",
     }
 
-def export_stats() -> bool:
+def _export(**info) -> bool:
     filepath = st.session_state.user_f
     if not filepath or not filepath.exists():
         st.error("Ошибка записи данных, пользователь не авторизован")
@@ -197,11 +197,10 @@ def export_stats() -> bool:
         return False
 
     # 3. Записываем текущую статистику под ключом айди кейса
-    if "stats" not in user_data:
-        user_data["stats"] = {}
-    
-    # Просто копируем уже готовый словарь из сессии
-    user_data["stats"][str(st.session_state.work_id)] = st.session_state.current_stats
+    for item, value in info.items():
+        if item not in user_data:
+            user_data[item] = {}
+        user_data[item] = value
 
     # 4. Сохраняем файл обратно
     filepath.write_text(
@@ -543,7 +542,7 @@ def _render_diagnosis_stage(case):
     with col2:
         if st.button("🏁 Закончить прием", type="primary"):
             _save_stat(case)
-            if export_stats():
+            if _export(stats=st.session_state.current_stats):
                 reset_work_state()
                 st.session_state.page = "stats"
                 st.rerun()
