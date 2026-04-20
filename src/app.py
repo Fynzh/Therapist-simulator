@@ -3,7 +3,6 @@ import json
 import time
 import random
 from pathlib import Path
-from streamlit_option_menu import option_menu
 
 
 def anti_none():
@@ -20,7 +19,8 @@ def anti_none():
         "stats": {},
         "auth": False,
         "user_f": None,
-        "anim_dia": False
+        "anim_dia": False,
+        "top_qst": {}
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -476,6 +476,7 @@ def _render_questions_stage(case):
         speed = case["speed"]
     else:
         speed = 0.08
+    
     with st.container(border=True):
         if st.session_state.n_change == True:
             n=st.session_state.n
@@ -501,21 +502,23 @@ def _render_questions_stage(case):
             st.session_state.anim_dia = False
             st.session_state.n_change = False
             placeholder.empty()
+            
+            indexed_questions = list(enumerate(case["questions"]))
+            filtered = [
+                item for item in indexed_questions 
+                if item[0] not in st.session_state.excluded_q
+            ]
+            st.session_state.top_qst = get_top_questions(filtered)
+
             st.rerun()
         elif not st.session_state.anim_dia:
             st.markdown(st.session_state.dialog)
     
-    indexed_questions = list(enumerate(case["questions"]))
-    filtered = [
-        item for item in indexed_questions 
-        if item[0] not in st.session_state.excluded_q
-    ]
-    top_qst = get_top_questions(filtered)
-    st.info(top_qst)
+    
     _, col1, _ = st.columns([1, 5, 1])
     with col1:
-        if top_qst:
-            for q_id, q_item in top_qst.items():
+        if st.session_state.top_qst:
+            for q_id, q_item in st.session_state.top_qst.items():
                 if st.button(q_item['q'], use_container_width=True, key=f"q_{q_id}"):
                     st.session_state.n = q_id
                     st.session_state.n_change = True
