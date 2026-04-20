@@ -379,21 +379,22 @@ def render_auth_page():
         user_name = st.text_input(
             "Введите ваше имя или ID врача", 
             placeholder="Логин",
-            help="Это имя будет использоваться в отчетах и результатах кейсов"
+            help="Это имя будет использоваться в отчетах и результатах кейсов",
+            key="user_name",
+            on_change=_button_auth
         )
-        
-        # Кнопка входа
-        if st.button("Войти в кабинет", type="primary", width="stretch", shortcut='Enter'):
-            if user_name.strip():
-                # Сохраняем имя и переключаем страницу
-                if _login(user_name):
-                    st.session_state.auth = True
-                    st.rerun()
-                else:
-                    st.error("Ошибка авторизации, попробуйте снова.")
-            else:
-                st.error("Пожалуйста, введите имя, чтобы продолжить.")
+        st.button("Войти в кабинет", type="primary", width="stretch", on_click=_button_auth)
     st.stop()
+
+def _button_auth():
+    user_name = st.session_state.user_name
+    if user_name.strip():
+        if _login(user_name):
+            st.session_state.auth = True
+        else:
+            st.error("Ошибка авторизации, попробуйте снова.")
+    else:
+        st.error("Пожалуйста, введите имя, чтобы продолжить.")
 
 def render_menu_page():
     st.title(":material/medical_services: Терапевтический симулятор")
