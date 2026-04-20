@@ -1,2 +1,2 @@
 import streamlit as st
-help(st.divider())
+help(st.button)

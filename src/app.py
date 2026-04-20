@@ -20,7 +20,6 @@ def anti_none():
         "user_f": None,
         "anim_dia": False,
         "top_qst": {},
-        "dialog": ""
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -384,7 +383,7 @@ def render_auth_page():
         )
         
         # Кнопка входа
-        if st.button("Войти в кабинет", type="primary", width="stretch"):
+        if st.button("Войти в кабинет", type="primary", width="stretch", shortcut='Enter'):
             if user_name.strip():
                 # Сохраняем имя и переключаем страницу
                 if _login(user_name):
