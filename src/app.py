@@ -66,6 +66,8 @@ def _login(username) -> bool:
             if data.get("username") == username:
                 # .name возвращает только имя файла (напр. "user_001.json")
                 st.session_state.user_f = st.session_state.path["users"] / user_file.name
+                if st.session_state.page == "auth" or "page" not in st.session_state:
+                    st.session_state.page = "menu"
                 _load_progress()
                 return True
         except (json.JSONDecodeError, IOError):
@@ -106,6 +108,7 @@ def _login(username) -> bool:
     )
     
     st.session_state.user_f = st.session_state.path["users"] / new_file_name
+    st.session_state.page = "menu"
     return True
 
 def load_stats():
@@ -195,18 +198,32 @@ def _load_progress():
     try:
         for key, value in loads.items():
             if key not in st.session_state or not st.session_state[key] == value:
-                st.session_state[key] = value
+                conv_val = convert_keys_to_int(value)
+                st.session_state[key] = conv_val
     except:
         st.error("Ошибка загрузки предыдущей сессии")
+
+def convert_keys_to_int(data):
+    if isinstance(data, dict):
+        new_dict = {}
+        for k, v in data.items():
+            if isinstance(k, str) and k.isdigit():
+                new_key = int(k)
+            else:
+                new_key = k
+            
+            new_dict[new_key] = convert_keys_to_int(v)
+        return new_dict
+    elif isinstance(data, list):
+        return [convert_keys_to_int(item) for item in data]
+    else:
+        return data
 
 def _export(**info) -> bool:
     filepath = st.session_state.user_f
     if not filepath or not filepath.exists():
         st.error("Ошибка записи данных, пользователь не авторизован")
         _logout()
-        return False
-    if "current_stats" not in st.session_state:
-        st.error("Ошибка записи данных, статистика отсутствует")
         return False
     
     try:
@@ -303,6 +320,7 @@ def sidebar_render():
         st.session_state.page = "stats"
         st.rerun()
     if st.sidebar.button("Сохранить и выйти", type="primary", width="stretch", icon=":material/close:"):
+        _export(test = 865)
         _save_progress()
         st.session_state.clear()
         st.rerun()
@@ -371,8 +389,6 @@ def render_auth_page():
                 # Сохраняем имя и переключаем страницу
                 if _login(user_name):
                     st.session_state.auth = True
-                    st.session_state.page = "menu"
-                    st.success(f"Доктор {user_name}, добро пожаловать на смену!")
                     st.rerun()
                 else:
                     st.error("Ошибка авторизации, попробуйте снова.")
