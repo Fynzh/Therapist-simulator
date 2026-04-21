@@ -165,7 +165,8 @@ def reset_work_state():
         del st.session_state["dialog"]
 
 def _save_stat(case):
-    score = calculate_score(case, st.session_state.excluded_q)
+    exc_q = [x for x in st.session_state.excluded_q if x != 0]
+    score = calculate_score(case, exc_q)
     correct = case["correct_diagnosis"]
     user_diag = st.session_state.user_diagnosis.strip()
     if "current_stats" not in st.session_state:
@@ -292,12 +293,39 @@ def get_top_questions(questions, limit=5):
         for orig_id, item in selected
     }
 
-def calculate_score(case, asked_ids):
-    total = sum(q["weight"] for q in case["questions"])
-    user_weight = sum(case['questions'][int(q_id)]['weight'] for q_id in asked_ids)
+def calculate_score(case, used_ids, atribute = "questions"):
+    if not used_ids:
+        return 0
+    total = len(used_ids) * 10
+    user_weight = sum(case[atribute][int(q_id)]['weight'] for q_id in used_ids)
     if total == 0:
         return 0
-    return round((user_weight / total) * 100)
+    score = round((user_weight / total) * 100)
+    return min(100, score)
+
+def show_info(info: str, key, button_text: str = "Закрыть"):
+    if key:
+        show_key = key
+    else:
+        show_key = f"has_seen_{info[:15]}"
+    
+    if show_key in st.session_state and not st.session_state[show_key]:
+        return
+
+    # Инициализируем состояние, если это первый запуск
+    if show_key not in st.session_state:
+        st.session_state[show_key] = True
+
+    # Отрисовываем контейнер
+    placeholder = st.empty()
+    with placeholder.container(border=True):
+        st.info(info)
+        # Используем on_click для мгновенного обновления состояния до рендеринга
+        st.button(
+            button_text, 
+            key=f"btn_{show_key}", # Уникальный ключ для самой кнопки
+            on_click=lambda: st.session_state.update({show_key: False})
+        )
 
 def sidebar_render():
     btn = lambda active: "secondary" if active else "tertiary"
@@ -524,7 +552,7 @@ def _render_questions_stage(case):
     else:
         speed = 0.08
     
-    with st.container(border=True):
+    with st.container(border=True, autoscroll=True, height=300):
         if st.session_state.n_change == True:
             n=st.session_state.n
             q = case["questions"][n]
@@ -574,9 +602,51 @@ def _render_questions_stage(case):
                     st.rerun()
         else:
             st.info("Все доступные вопросы заданы.")
+    show_info("""
+        #### Как считаются баллы за опрос:
+
+        * **Каждый вопрос — это «шаг»:** Чем больше лишних кликов, тем ниже итоговый балл. Это имитация реального приема: нельзя тратить время на пустую болтовню, когда пациенту плохо.
+        * **Вес вопроса:**  Ключевые факты дают максимум очков, второстепенные — минимум.
+        * **Точность важнее полноты:** Не перебирайте всё подряд — это снизит оценку.
+        
+        ***Подсказка:*** *не перебирай все возможные вопросы, это понизит оценку.*
+        """,
+        "qst_info", "Понятно")
     
 def _render_exams_stage(case):
-    pass
+    st.title("🔬 Назначение обследований")
+    st.markdown(
+        f"**Пациент:** {case['last_name']} {case['first_name']} {case['patronymic']}, "
+        f"{case['age']} лет"
+    )
+    st.markdown("Отметьте обследования, которые хотите назначить:")
+    st.divider()
+
+    exams = case.get("exams", [])
+    if not exams:
+        st.info("Для данного пациента обследований не предусмотрено.")
+    else:
+        ordered = list(st.session_state.ordered_exams)
+        for i, exam in enumerate(exams):
+            checked = exam["name"] in ordered
+            if st.checkbox(exam["name"], value=checked, key=f"exam_{i}"):
+                if exam["name"] not in ordered:
+                    ordered.append(exam["name"])
+            else:
+                if exam["name"] in ordered:
+                    ordered.remove(exam["name"])
+        st.session_state.ordered_exams = ordered
+
+    st.divider()
+    col_back, _, col_next = st.columns(3)
+    with col_back:
+        if st.button("← Вернуться к опросу", type="secondary"):
+            st.session_state.stage = "questions"
+            st.rerun()
+    with col_next:
+        if st.button("📋 Посмотреть результаты →", type="primary"):
+            st.session_state.stage = "diagnosis"
+            st.rerun()
 
 def _render_diagnosis_stage(case):
     st.divider()
@@ -637,6 +707,8 @@ def render_stats_page():
 
             exams_str = ", ".join(s["ordered_exams"]) if s["ordered_exams"] else "не назначены"
             st.markdown(f"**Назначенные исследования:** {exams_str}")
+
+# ---------------------------------------------------------------------------
 
 def main():
     anti_none()
