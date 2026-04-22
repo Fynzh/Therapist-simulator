@@ -31,6 +31,7 @@ def anti_none():
         "user_logout": False,
         "exams_stage": "appointment",
         "show_keys": {},
+        "last_stat_id": 0,
         "settings": {
             "img_info" : True,
             "norms": True
@@ -172,8 +173,7 @@ def load_cases() -> dict:
                     "first_name": data.get("first_name"),
                     "patronymic": data.get("patronymic"),
                     "age": data.get("age"),
-                    "sex": data.get("sex"),
-                    "correct_diagnosis": data.get("correct_diagnosis")
+                    "sex": data.get("sex")
                 }
         except (json.JSONDecodeError, OSError) as e:
             st.error(f"Ошибка при чтении файла {file_path.name}: {e}")
@@ -229,7 +229,8 @@ def _table_norm_generate(norm_t, case_t):
                 processed_arg = {}
                 for key, value in case_t_map[arg["Параметр"]].items():
                     processed_arg[key] = str(value)
-                processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
+                if st.session_state.settings["norms"]:
+                    processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
                 processed_table.append(processed_arg)
     return processed_table
 
@@ -247,7 +248,8 @@ def _table_processing(raw_table: list) -> list:
                     processed_arg["Значение"] = str(random_val)
                 else:
                     processed_arg[key] = value
-            processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
+            if st.session_state.settings["norms"]:
+                processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
             processed_table.append(processed_arg)
     return processed_table
 
@@ -273,7 +275,8 @@ def reset_work_state():
     }
     for_del = [
         "dialog",
-        "loaded_exams"
+        "loaded_exams",
+        "dia_list"
     ]
     for k, v in for_reset.items():
         if k in st.session_state:
@@ -285,21 +288,21 @@ def reset_work_state():
 
 def _save_stat(case):
     exc_q = [x for x in st.session_state.excluded_q if x != 0]
-    score = calculate_score(case, exc_q)
+    q_score = calculate_score(case, exc_q)
     exams_score = calculate_score(case, used_ids=st.session_state.ordered_exams, atribute="exams")
-    correct = case["correct_diagnosis"]
-    user_diag = st.session_state.user_diagnosis.strip()
+    comment = next((d["comment"] for d in case["diagnoses"] if d["name"] == st.session_state.user_diagnosis), "Комментарий не найден")
+    is_correct = st.session_state.user_diagnosis == case["correct_diagnosis"]
+    total_score = (q_score + exams_score) // 2
     if "current_stats" not in st.session_state:
         st.session_state.current_stats = {}
     st.session_state.current_stats[st.session_state.work_id] = {
-        "score": score,
-        "asked_ids": list(st.session_state.excluded_q),
-        "ordered_exams": list(st.session_state.ordered_exams),
+        "q_score": q_score,
         "exams_score": exams_score,
-        "user_diagnosis": user_diag,
-        "correct_diagnosis": correct,
-        "is_correct": user_diag.lower() == correct.lower(),
-        "case_name": f"{case['last_name']} {case['first_name']} {case['patronymic']}",
+        "user_diagnosis": st.session_state.user_diagnosis,
+        "is_correct": is_correct,
+        "case_id": st.session_state.work_id,
+        "comment": comment,
+        "total_score": total_score
     }
 
 def _save_progress():
@@ -307,7 +310,8 @@ def _save_progress():
         "in_work", "page", "n", "n_change", "excluded_q",
         "work_id", "ordered_exams", "user_diagnosis",
         "stats", "anim_dia", "top_qst", "dialog", "loaded_exams", 
-        "show_keys", "settings"
+        "show_keys", "settings", "dia_list", "user_diagnosis", 
+        "last_stat_id"
         ]
     progress = {}
     for inf in progress_info:
@@ -576,23 +580,6 @@ def render_menu_page():
         st.session_state.page = "home"
         st.rerun()
 
-    st.divider()
-    cases_path = st.session_state.path.get("cases")
-    cases_count = len(list(cases_path.glob("case*.json"))) if cases_path else 0
-    stats = st.session_state.get("stats", {})
-    completed = len(stats)
-    avg_score = (
-        round(sum(s["score"] for s in stats.values()) / completed)
-        if completed > 0 else "—"
-    )
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(label="Доступно кейсов", value=cases_count)
-    with col2:
-        st.metric(label="Завершено", value=completed)
-    with col3:
-        st.metric(label="Средний балл", value=avg_score)
-
 def render_home_page():
     st.title("💼 Мой кабинет")
     if st.session_state.in_work:
@@ -630,9 +617,27 @@ def render_home_page():
                 
         with col2:
             if id in stats:
-                st.markdown(f"**{stats[id]['score']}%**")
+                st.markdown(f"**{stats[id]['total_score']}%**")
             else:
                 st.markdown("—")
+        
+    st.divider()
+    totals = []
+    cases_count = len(cases) if cases else 0
+    completed = len(stats)
+    for id in stats:
+        totals.append(stats[id]['total_score'])
+    avg_score = (
+        round(sum(totals) / completed)
+        if completed > 0 else "—"
+    )
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(label="Доступно кейсов", value=cases_count)
+    with col2:
+        st.metric(label="Завершено", value=completed)
+    with col3:
+        st.metric(label="Средний балл", value=avg_score)
 
 def render_work_page():
     st.title(f"🩺 Ваш приемный кабинет")
@@ -646,6 +651,9 @@ def render_work_page():
         st.error("Не удалось загрузить данные пациента.")
         return
     load_exams(case)
+    if "dia_list" not in st.session_state:
+        st.session_state.dia_list = [d["name"] for d in case["diagnoses"]]
+        random.shuffle(st.session_state.dia_list)
     st.markdown("""
         <style>
         button[data-baseweb="tab"] {
@@ -806,10 +814,12 @@ def _render_exams_review(case):
                     st.write(exam["info"])
 
 def _render_diagnosis_stage(case):
-    
-    
-    
-    st.divider()
+    st.session_state.user_diagnosis = st.selectbox(
+        "Выберите диагноз:",
+        st.session_state.dia_list,
+        index=None,
+        placeholder="Начните вводить текст...", 
+    )
     col1, col2 = st.columns(2)
     with col1:
         if st.button("❌ Завершить без сохранения", type="secondary"):
@@ -819,9 +829,10 @@ def _render_diagnosis_stage(case):
             st.rerun()
     with col2:
         with st.container(horizontal_alignment="right"):
-            if st.button("🏁 Закончить прием", type="primary"):
+            if st.button("✅ Завершить работу", type="primary"):
                 _save_stat(case)
                 if _export(stats=st.session_state.current_stats):
+                    st.session_state.last_stat_id = st.session_state.work_id
                     reset_work_state()
                     st.session_state.page = "stats"
                     st.rerun()
@@ -833,19 +844,20 @@ def render_settings_page():
         "img_info": "Показывать информацию о картинках",
         "norms": "Показывать нормы"
     }
-    for stg, v in st.session_state.settings.items():
+    for stg, _ in st.session_state.settings.items():
         st.checkbox(
             label=stg_info[stg], 
             key=f"temp_{stg}", # Временный ключ для связи
             value=st.session_state.settings[stg], # Начальное значение
             on_change=sync_settings # Функция обновления основного словаря
         )
+    if st.session_state.in_work:
+        st.info("Изменения вступят в силу после завершения текущего кейса")
     
-
 def render_stats_page():
     st.title("📊 Статистика")
+    cases = load_cases()
     stats = load_stats()
-
     if not stats:
         st.info("Вы ещё не завершили ни одного клинического случая.")
         if st.button("Перейти к кейсам", type="primary"):
@@ -855,31 +867,43 @@ def render_stats_page():
 
     last_id = st.session_state.get("last_stat_id")
 
-    for case_id, s in sorted(stats.items()):
+    for case_id, info in reversed(stats.items()): # Показываем новые сверху
+        is_last = (case_id == last_id)
+        full_name = f"{cases[case_id]['first_name'][0]}. {cases[case_id]["patronymic"][0]}. {cases[case_id]['last_name']}"
+        # Создаем контейнер. В новых версиях Streamlit можно добавить границу (border)
         with st.container(border=True):
-            if case_id == last_id:
-                st.markdown("### 🆕 Последний результат")
-
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns([3, 1])
+            
             with col1:
-                st.metric("Пациент", s["case_name"])
+                # Добавляем пометку, если это последний результат
+                title_prefix = "🌟" if is_last else ""
+                st.subheader(f"{title_prefix} {full_name}")
+                st.caption(f"Кейс №{info['case_id']}")
             with col2:
-                st.metric("Балл за опрос", f"{s['score']}%")
-            with col3:
-                verdict = "✅ Верно" if s["is_correct"] else "❌ Неверно"
-                st.metric("Диагноз", verdict)
+                st.metric("Общий балл", f"{info['total_score']}%")
 
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                st.markdown(f"**Ваш диагноз:** {s['user_diagnosis']}")
-            with col_d2:
-                if s["is_correct"]:
-                    st.success(f"**Правильный диагноз:** {s['correct_diagnosis']}")
+            # Внутренняя информация
+            c1, c2, c3 = st.columns(3)
+            
+            c1.write(f"#### **Вопросы:** {info['q_score']}%")
+            c2.write(f"#### **Анализы:** {info['exams_score']}%")
+            c3.write(f"####  {'**Верно** ✅' if info['is_correct'] else '**Неверно** ❌'}")
+
+            with st.expander("Посмотреть детализацию и комментарий"):
+                c4, c5 = st.columns([7, 3])
+                with c4:
+                    st.write(f"**Ваш диагноз:** {info['user_diagnosis']}")
+                c5.write(f"{'Верный ✅' if info['is_correct'] else 'Неверный ❌'}")
+                if info['is_correct']:
+                    st.success(info['comment'])
                 else:
-                    st.error(f"**Правильный диагноз:** {s['correct_diagnosis']}")
+                    st.error(info['comment'])
+                
 
-            exams_str = ", ".join(s["ordered_exams"]) if s["ordered_exams"] else "не назначены"
-            st.markdown(f"**Назначенные исследования:** {exams_str}")
+        
+        # Небольшой отступ между контейнерами, если они без границ
+        if not is_last:
+            st.write("")
 
 # ---------------------------------------------------------------------------
 
