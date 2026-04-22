@@ -223,6 +223,7 @@ def load_exams(case):
 def _table_norm_generate(norm_t, case_t):
     processed_table = []
     case_t_map = {ex["Параметр"]: ex for ex in case_t}
+    case_n_map = {ex["Параметр"]: ex for ex in norm_t}
     for arg in norm_t:
         if arg["Параметр"] in case_t_map:
             if "text" in arg:
@@ -235,13 +236,27 @@ def _table_norm_generate(norm_t, case_t):
                 if st.session_state.settings["norms"]:
                     processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
                 processed_table.append(processed_arg)
+        else:
+            for_proc = [arg]
+            prc_t = _table_processing(for_proc)
+            processed_table.append(prc_t[0])
+    for arg in case_t:
+        if arg["Параметр"] not in case_n_map:
+            processed_table.append(arg)
+    processed_table.sort(key=lambda x: x.get("Параметр", ""))
     return processed_table
 
 def _table_processing(raw_table: list) -> list:
     processed_table = []
     for arg in raw_table:
         if "text" in arg:
-            processed_table.append(arg)
+            processed_arg = {}
+            for key, value in arg.items():
+                if key == "text":
+                    processed_arg["Значение"] = value
+                else:
+                    processed_arg[key] = value
+            processed_table.append(processed_arg)
         elif "min" in arg and "max" in arg:
             mi, ma = arg["min"], arg["max"]
             random_val = _smart_random(min_val=mi, max_val=ma)
@@ -254,6 +269,7 @@ def _table_processing(raw_table: list) -> list:
             if st.session_state.settings["norms"]:
                 processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
             processed_table.append(processed_arg)
+    processed_table.sort(key=lambda x: x.get("Параметр", ""))
     return processed_table
 
 def _smart_random(min_val, max_val):
