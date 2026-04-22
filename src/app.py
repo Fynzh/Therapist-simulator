@@ -3,6 +3,7 @@ import json
 import time
 import random
 import extra_streamlit_components as stx
+from typing import Literal
 from pathlib import Path
 
 def init_manager():
@@ -27,8 +28,13 @@ def anti_none():
         "top_qst": {},
         "cookie_save": False,
         "cookie_delete": False,
-        "user_logout": False
-        #"last_stat_id": None,
+        "user_logout": False,
+        "exams_stage": "appointment",
+        "show_keys": {},
+        "settings": {
+            "img_info" : True,
+            "norms": True
+        }
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -53,6 +59,10 @@ def init_paths(current_dir = Path(__file__).resolve().parent) -> bool:
             st.session_state.path[f"{key}"] = path_obj
             
     return all_clear
+
+def sync_settings():
+    for k, _ in st.session_state.settings.items():
+        st.session_state.settings[k] = st.session_state[f"temp_{k}"]
 
 def _logout():
     st.session_state.auth = False
@@ -197,13 +207,31 @@ def load_exams(case):
     for exam_norm in exams_list:
         exam_name = exam_norm["name"]
         if exam_name in case_exams_map:
-            load_exam = case_exams_map[exam_name]
+            load_exam = case_exams_map[exam_name].copy()
+            if load_exam.get("type") == "table":
+                load_exam["info"] = _table_norm_generate(exam_norm["info"], case_exams_map[exam_name]["info"])
         else:
             load_exam = exam_norm.copy()
             if exam_norm.get("type") == "table":
                 load_exam["info"] = _table_processing(exam_norm["info"])
         st.session_state.loaded_exams.append(load_exam)
     return True
+
+def _table_norm_generate(norm_t, case_t):
+    processed_table = []
+    case_t_map = {ex["Параметр"]: ex for ex in case_t}
+    for arg in norm_t:
+        if arg["Параметр"] in case_t_map:
+            if "text" in arg:
+                processed_table.append(case_t_map[arg["Параметр"]])
+            elif "min" in arg and "max" in arg:
+                mi, ma = arg["min"], arg["max"]
+                processed_arg = {}
+                for key, value in case_t_map[arg["Параметр"]].items():
+                    processed_arg[key] = str(value)
+                processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
+                processed_table.append(processed_arg)
+    return processed_table
 
 def _table_processing(raw_table: list) -> list:
     processed_table = []
@@ -216,10 +244,10 @@ def _table_processing(raw_table: list) -> list:
             processed_arg = {}
             for key, value in arg.items():
                 if key == "min" or key == "max":
-                    processed_arg["Значение"] = random_val
+                    processed_arg["Значение"] = str(random_val)
                 else:
                     processed_arg[key] = value
-            processed_arg["Норма"] = f"{mi} - {ma}"
+            processed_arg["Норма"] = f"{str(mi)} - {str(ma)}"
             processed_table.append(processed_arg)
     return processed_table
 
@@ -240,6 +268,8 @@ def reset_work_state():
         "user_diagnosis": "",
         "in_work": False,
         "work_id": None,
+        "show_keys": {},
+        "exams_stage": "appointment"
     }
     for_del = [
         "dialog",
@@ -256,6 +286,7 @@ def reset_work_state():
 def _save_stat(case):
     exc_q = [x for x in st.session_state.excluded_q if x != 0]
     score = calculate_score(case, exc_q)
+    exams_score = calculate_score(case, used_ids=st.session_state.ordered_exams, atribute="exams")
     correct = case["correct_diagnosis"]
     user_diag = st.session_state.user_diagnosis.strip()
     if "current_stats" not in st.session_state:
@@ -264,6 +295,7 @@ def _save_stat(case):
         "score": score,
         "asked_ids": list(st.session_state.excluded_q),
         "ordered_exams": list(st.session_state.ordered_exams),
+        "exams_score": exams_score,
         "user_diagnosis": user_diag,
         "correct_diagnosis": correct,
         "is_correct": user_diag.lower() == correct.lower(),
@@ -274,7 +306,8 @@ def _save_progress():
     progress_info = [
         "in_work", "page", "n", "n_change", "excluded_q",
         "work_id", "ordered_exams", "user_diagnosis",
-        "stats", "anim_dia", "top_qst", "dialog", "loaded_exams"
+        "stats", "anim_dia", "top_qst", "dialog", "loaded_exams", 
+        "show_keys", "settings"
         ]
     progress = {}
     for inf in progress_info:
@@ -384,13 +417,16 @@ def get_top_questions(questions, limit=5):
         for orig_id, item in selected
     }
 
-def calculate_score(case, used_ids, atribute = "questions"):
+def calculate_score(case, used_ids, atribute: Literal["questions", "exams"] = "questions"):
     if not used_ids:
         return 0
     total = len(used_ids) * 10
-    user_weight = sum(case[atribute][int(q_id)]['weight'] for q_id in used_ids)
     if total == 0:
         return 0
+    if atribute == "questions":
+        user_weight = sum(case[atribute][int(q_id)]['weight'] for q_id in used_ids)
+    elif atribute == "exams":
+        user_weight = sum(exam["weight"] for exam in used_ids)
     score = round((user_weight / total) * 100)
     return min(100, score)
 
@@ -400,12 +436,12 @@ def show_info(info: str, key, button_text: str = "Закрыть"):
     else:
         show_key = f"has_seen_{info[:15]}"
     
-    if show_key in st.session_state and not st.session_state[show_key]:
+    if show_key in st.session_state.show_keys and not st.session_state.show_keys[show_key]:
         return
 
     # Инициализируем состояние, если это первый запуск
-    if show_key not in st.session_state:
-        st.session_state[show_key] = True
+    if show_key not in st.session_state.show_keys:
+        st.session_state.show_keys[show_key] = True
 
     # Отрисовываем контейнер
     placeholder = st.empty()
@@ -415,7 +451,7 @@ def show_info(info: str, key, button_text: str = "Закрыть"):
         st.button(
             button_text, 
             key=f"btn_{show_key}", # Уникальный ключ для самой кнопки
-            on_click=lambda: st.session_state.update({show_key: False})
+            on_click=lambda: st.session_state.show_keys.update({show_key: False})
         )
 
 def sidebar_render():
@@ -645,7 +681,7 @@ def _render_questions_stage(case):
     if "speed" in case:
         speed = case["speed"]
     else:
-        speed = 0.08
+        speed = 0.03
     
     with st.container(border=True, autoscroll=True, height=300):
         if st.session_state.n_change == True:
@@ -664,7 +700,6 @@ def _render_questions_stage(case):
 
             for w in q["a"]:
                 full_response += w
-                # Показываем ВСЮ историю + то, что успело напечататься
                 placeholder.markdown(st.session_state.dialog + header + full_response)
                 time.sleep(speed)
             
@@ -684,38 +719,41 @@ def _render_questions_stage(case):
         elif not st.session_state.anim_dia:
             st.markdown(st.session_state.dialog)
     
-    
-    _, col1, _ = st.columns([1, 5, 1])
-    with col1:
-        if st.session_state.top_qst:
-            for q_id, q_item in st.session_state.top_qst.items():
-                if st.button(q_item['q'], width="stretch", key=f"q_{q_id}"):
-                    st.session_state.n = q_id
-                    st.session_state.n_change = True
-                    st.session_state.excluded_q.append(q_id)
-                    _save_stat(case)
-                    st.rerun()
-        else:
-            st.info("Все доступные вопросы заданы.")
-    show_info("""
-        #### Как считаются баллы за опрос:
+    if st.session_state.exams_stage == "review":
+        st.subheader("Пациент ушел сдавать анализы...")
+    else:
+        _, col1, _ = st.columns([1, 5, 1])
+        with col1:
+            if st.session_state.top_qst:
+                for q_id, q_item in st.session_state.top_qst.items():
+                    if st.button(q_item['q'], width="stretch", key=f"q_{q_id}"):
+                        st.session_state.n = q_id
+                        st.session_state.n_change = True
+                        st.session_state.excluded_q.append(q_id)
+                        _save_stat(case)
+                        st.rerun()
+            else:
+                st.info("Все доступные вопросы заданы.")
+        show_info("""
+            #### Как работает опрос:
 
-        * **Каждый вопрос — это «шаг»:** Чем больше лишних кликов, тем ниже итоговый балл. Это имитация реального приема: нельзя тратить время на пустую болтовню, когда пациенту плохо.
-        * **Вес вопроса:**  Ключевые факты дают максимум очков, второстепенные — минимум.
-        * **Точность важнее полноты:** Не перебирайте всё подряд — это снизит оценку.
-        
-        ***Подсказка:*** *не перебирай все возможные вопросы, это понизит оценку.*
-        """,
-        "qst_info", "Понятно")
+            * **Каждый вопрос — это «шаг»:** Чем больше лишних кликов, тем ниже итоговый балл. Это имитация реального приема: нельзя тратить время на пустую болтовню, когда пациенту плохо.
+            * **Вес вопроса:**  Ключевые факты дают максимум очков, второстепенные — меньше.
+            * **Назначайте анализы после опроса:**  Когда вы назначите пациенту анализы, он уйдет, и вы больше не сможете задать ему вопросы.
+            
+            ***Подсказка:*** *не перебирай все возможные вопросы, это понизит оценку.*
+            """,
+            "qst_info", "Понятно")
     
 def _render_exams_stage(case):
-    st.title("🔬 Назначение обследований")
-    st.markdown(
-        f"**Пациент:** {case['last_name']} {case['first_name']} {case['patronymic']}, "
-        f"{case['age']} лет"
-    )
-    st.markdown("Отметьте обследования, которые хотите назначить:")
-    st.divider()
+    st.title("🔬 Лаборатория")
+    if st.session_state.exams_stage == "appointment":
+        _render_exams_appointment(case)
+    elif st.session_state.exams_stage == "review":
+        _render_exams_review(case)
+
+def _render_exams_appointment(case):
+    st.subheader("Отметьте обследования, которые хотите назначить:")
 
     with st.container(border=True, height=400):
         exams = st.session_state.loaded_exams
@@ -733,19 +771,44 @@ def _render_exams_stage(case):
                         ordered.remove(exam)
             st.session_state.ordered_exams = ordered
 
-    st.divider()
-    col_back, col_next = st.columns(2)
-    with col_back:
-        if st.button("← Вернуться к опросу", type="secondary"):
-            st.session_state.stage = "questions"
+    with st.container(horizontal_alignment="right"):
+        if st.button("📋 Подтвердить выбор и посмотреть результаты →", type="primary"):
+            st.session_state.exams_stage = "review"
+            _save_stat(case)
             st.rerun()
-    with col_next:
-        with st.container(horizontal_alignment="right"):
-            if st.button("📋 Посмотреть результаты →", type="primary"):
-                st.session_state.stage = "diagnosis"
-                st.rerun()
+    st.divider()
+    show_info("""
+        #### Как считаются баллы за анализы:
+
+        * **Чем больше вы назначите "бесполезных" анализов - тем больше потратите времени и денег, так что за такое баллы снижаются**
+        * **Вес вопроса:**  Ключевые анализы дают максимум, второстепенные — меньше.
+
+        ***Подсказка:*** *не выбирай все возможные анализы, это понизит оценку.*
+        """,
+        "exams_info", "Понятно")
+
+def _render_exams_review(case):
+    st.subheader("Вот результаты назначенных анализов:")
+    for exam in st.session_state.ordered_exams:
+        with st.expander(exam["name"], ):
+            if exam["type"] == "text":
+                st.write(exam["info"])
+            elif exam["type"] == "table":
+                st.table(exam["info"])
+            elif exam["type"] == "img":
+                file_name = exam.get("file_name")
+                file_path = st.session_state.path["media"] / exam["file_name"]
+                if file_name and file_path.exists():
+                    st.image(file_path)
+                else:
+                    st.error("Ошибка: Изображение не найдено")
+                if exam.get("info") and st.session_state.settings["img_info"]:
+                    st.write(exam["info"])
 
 def _render_diagnosis_stage(case):
+    
+    
+    
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
@@ -766,6 +829,18 @@ def _render_diagnosis_stage(case):
 def render_settings_page():
     st.title("⚙️ Настройки")
     st.write("Настройки интерфейса или сложности.")
+    stg_info = {
+        "img_info": "Показывать информацию о картинках",
+        "norms": "Показывать нормы"
+    }
+    for stg, v in st.session_state.settings.items():
+        st.checkbox(
+            label=stg_info[stg], 
+            key=f"temp_{stg}", # Временный ключ для связи
+            value=st.session_state.settings[stg], # Начальное значение
+            on_change=sync_settings # Функция обновления основного словаря
+        )
+    
 
 def render_stats_page():
     st.title("📊 Статистика")

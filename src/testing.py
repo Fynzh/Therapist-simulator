@@ -1,16 +1,23 @@
 import streamlit as st
-import inspect
+import random
 
-def generate_st_help():
-    with open("streamlit_help.txt", "w", encoding="utf-8") as f:
-        # Проходим по всем элементам в модуле streamlit
-        for name, obj in inspect.getmembers(st):
-            # Нам нужны только функции и те, что не начинаются с подчёркивания
-            if not name.startswith("_") and (inspect.isfunction(obj) or inspect.isbuiltin(obj)):
-                f.write(f"--- COMMAND: st.{name} ---\n")
-                f.write(str(inspect.getdoc(obj)))
-                f.write("\n\n" + "="*50 + "\n\n")
+def _smart_random(min_val, max_val):
+    def get_precision(val):
+        s = str(val)
+        return len(s.split(".")[1]) if "." in s else 0
+    precision = max(get_precision(min_val), get_precision(max_val))
+    res = random.uniform(float(min_val), float(max_val))
+    return round(res, precision) if precision > 0 else int(round(res))
 
-if __name__ == "__main__":
-    generate_st_help()
-    print("Готово! Файл streamlit_help.txt создан.")
+def main():
+    #for i in range(10):
+    #    value = _smart_random(4.33, 9.2)
+    #    st.info(value)
+    data = [
+        {"Имя": "Алексей", "Роль": "4.33"},
+        {"Имя": "Мария", "Роль": "4.3"}
+    ]
+    st.table(data)
+
+if __name__ is "__main__":
+    main()
