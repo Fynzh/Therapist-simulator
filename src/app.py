@@ -2,12 +2,17 @@ import streamlit as st
 import json
 import time
 import random
+import extra_streamlit_components as stx
 from pathlib import Path
+
+def init_manager():
+    return stx.CookieManager()
+
+cm = init_manager()
 
 def anti_none():
     defaults = {
         "in_work": False,
-        "page": "auth",
         "n": 0,
         "n_change": True,
         "excluded_q": [0],
@@ -20,6 +25,9 @@ def anti_none():
         "user_f": None,
         "anim_dia": False,
         "top_qst": {},
+        "cookie_save": False,
+        "cookie_delete": False,
+        "user_logout": False
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -51,6 +59,22 @@ def _logout():
     st.session_state.user_f = None
     st.session_state.page = "auth"
     st.rerun
+
+def _login_id(id):
+    users_dir = st.session_state.path["users"]
+    for user_file in users_dir.glob("*.json"):
+        try:
+            data = json.loads(user_file.read_text(encoding="utf-8"))
+            if data.get("id") == id:
+                st.session_state.user_f = st.session_state.path["users"] / user_file.name
+                if "page" not in st.session_state:
+                    st.session_state.page = "menu"
+                if st.session_state.auth == False or "auth" not in st.session_state:
+                    st.session_state.auth = True
+                _load_progress()
+                return True
+        except (json.JSONDecodeError, IOError):
+            return False
 
 def _login(username) -> bool:
     # 1. Определяем путь к папке как объект Path
@@ -395,6 +419,8 @@ def show_info(info: str, key, button_text: str = "Закрыть"):
         )
 
 def sidebar_render():
+    with st.sidebar:
+        st.caption(f"Вы вошли как: {_import("username")}")
     btn = lambda active: "secondary" if active else "tertiary"
     if st.sidebar.button("Кабинет", type=btn(st.session_state.page == "home"),
                          width="stretch", icon=":material/cases:"):
@@ -414,9 +440,9 @@ def sidebar_render():
         st.session_state.page = "stats"
         st.rerun()
     if st.sidebar.button("Сохранить и выйти", type="primary", width="stretch", icon=":material/close:"):
-        _export(test = 865)
         _save_progress()
         st.session_state.clear()
+        st.session_state.cookie_delete = True
         st.rerun()
 
 # ---------------------------------------------------------------------------
@@ -471,7 +497,7 @@ def render_auth_page():
     
     # Создаем контейнер, чтобы ограничить ширину поля ввода
     with st.container():
-        user_name = st.text_input(
+        st.text_input(
             "Введите ваше имя или ID врача", 
             placeholder="Логин",
             help="Это имя будет использоваться в отчетах и результатах кейсов",
@@ -485,6 +511,7 @@ def _button_auth():
     user_name = st.session_state.user_name
     if user_name.strip():
         if _login(user_name):
+            st.session_state.cookie_save = True
             st.session_state.auth = True
         else:
             st.error("Ошибка авторизации, попробуйте снова.")
@@ -786,10 +813,51 @@ def main():
     if not init_paths():
         st.session_state.page = "error"
         render_error_page()
+    if st.session_state.cookie_save == True:
+        time.sleep(0.5)
+        user_id = _import("id")
+        cm.set("therapist-simulator-uid", user_id, key="save_uid_action")
+        st.session_state.cookie_save = False
+        time.sleep(0.5)
+        st.rerun()
+    if st.session_state.cookie_delete == True:
+        user_id = _import("id")
+        all_cookies = cm.get_all()
+        time.sleep(0.5) # Получаем все куки разом
+        if "therapist-simulator-uid" in all_cookies:
+            cm.delete("therapist-simulator-uid", key="delete_uid_action")
+            time.sleep(0.5)
+        st.session_state.user_logout = True
+        st.session_state.cookie_delete = False
+        st.session_state.auth = False
+        if "page" in st.session_state:
+            del st.session_state["page"]
+        st.rerun()
+    if "page" not in st.session_state:
+        time.sleep(0.5)
+        if st.session_state.user_logout == True:
+            st.session_state.page = "auth"
+            st.session_state.user_logout = False
+            st.rerun()
+        elif st.session_state.auth == False:
+            user_id = cm.get(cookie="therapist-simulator-uid")
+            if user_id:
+                if _login_id(user_id):
+                    st.session_state.page = "home"
+                    st.rerun()
+                else:
+                    st.session_state.page = "auth"
+                    st.rerun()
+            else:
+                st.session_state.page = "auth"
+                st.rerun()
+        else:
+            st.session_state.page = "error"
     if st.session_state.page == "error":
         render_error_page()
     elif st.session_state.page == "auth":
         render_auth_page()
+    _save_progress()
     sidebar_render()
     if st.session_state.page == "menu":
         render_menu_page()
