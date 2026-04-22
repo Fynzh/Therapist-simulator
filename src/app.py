@@ -20,6 +20,7 @@ def anti_none():
         "user_f": None,
         "anim_dia": False,
         "top_qst": {},
+        "loaded_exams": []
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -126,7 +127,7 @@ def load_cases() -> dict:
     cases_dict = {}
     cases_path = st.session_state.path["cases"]
     if not cases_path.is_dir():
-        print(f"Ошибка: Путь {cases_path} не найден или не является папкой.")
+        st.error(f"Ошибка: Путь {cases_path} не найден или не является папкой.")
         return cases_dict
     for file_path in sorted(cases_path.glob("case*.json")):
         try:
@@ -142,7 +143,7 @@ def load_cases() -> dict:
                     "correct_diagnosis": data.get("correct_diagnosis")
                 }
         except (json.JSONDecodeError, OSError) as e:
-            print(f"Ошибка при чтении файла {file_path.name}: {e}")
+            st.error(f"Ошибка при чтении файла {file_path.name}: {e}")
     return cases_dict
 
 def load_case(path):
@@ -153,16 +154,78 @@ def load_case(path):
         st.error(f"Ошибка чтения файла: {e}")
         return None
 
+def load_exams(case):
+    exams_list = []
+    exams_path = st.session_state.path["data"] / "exams_standart.json"
+    if not exams_path.is_file():
+        st.error(f"Ошибка: Файл {exams_path} не найден.")
+        return exams_list
+    try:
+        exams_dict = json.loads(exams_path.read_text(encoding='utf-8'))
+        exams_list = exams_dict["exams"]
+    except (json.JSONDecodeError, OSError) as e:
+        st.error(f"Ошибка при чтении файла {exams_path.name}: {e}")
+    
+    case_exams_map = {ex["name"]: ex for ex in case["exams"]}
+    
+    for exam_norm in exams_list:
+        exam_name = exam_norm["name"]
+        if exam_name in case_exams_map:
+            load_exam = case_exams_map[exam_name]
+        else:
+            load_exam = exam_norm.copy()
+            if exam_norm.get("type") == "table":
+                load_exam["info"] = _table_processing(exam_norm["info"])
+        st.session_state.loaded_exams.append(load_exam)
+    return True
+
+def _table_processing(raw_table: list) -> list:
+    processed_table = []
+    for arg in raw_table:
+        if "text" in arg:
+            processed_table.append(arg)
+        elif "min" in arg and "max" in arg:
+            mi, ma = arg["min"], arg["max"]
+            random_val = _smart_random(min_val=mi, max_val=ma)
+            processed_arg = {}
+            for key, value in arg.items():
+                if key == "min" or key == "max":
+                    processed_arg["Значение"] = random_val
+                else:
+                    processed_arg[key] = value
+            processed_arg["Норма"] = f"{mi} - {ma}"
+            processed_table.append(processed_arg)
+    return processed_table
+
+def _smart_random(min_val, max_val):
+    def get_precision(val):
+        s = str(val)
+        return len(s.split(".")[1]) if "." in s else 0
+    precision = max(get_precision(min_val), get_precision(max_val))
+    res = random.uniform(float(min_val), float(max_val))
+    return round(res, precision) if precision > 0 else int(round(res))
+
 def reset_work_state():
-    st.session_state.excluded_q = [0]
-    st.session_state.n = 0
-    st.session_state.n_change = True
-    st.session_state.ordered_exams = []
-    st.session_state.user_diagnosis = ""
-    st.session_state.in_work = False
-    st.session_state.work_id = None
-    if "dialog" in st.session_state:
-        del st.session_state["dialog"]
+    for_reset = {
+        "excluded_q": [0],
+        "n": 0,
+        "n_change": True,
+        "ordered_exams": [],
+        "user_diagnosis": "",
+        "in_work": False,
+        "work_id": None,
+        "loaded_exams": [],
+    }
+    for_del = [
+        "dialog"
+    ]
+    for k, v in for_reset.items():
+        if k in st.session_state:
+            st.session_state[k] = v
+    for v in for_del:
+        if v in st.session_state:
+            del st.session_state[v]
+    _save_progress()
 
 def _save_stat(case):
     exc_q = [x for x in st.session_state.excluded_q if x != 0]
@@ -185,7 +248,7 @@ def _save_progress():
     progress_info = [
         "in_work", "page", "n", "n_change", "excluded_q",
         "work_id", "ordered_exams", "user_diagnosis",
-        "stats", "anim_dia", "top_qst", "dialog"
+        "stats", "anim_dia", "top_qst", "dialog", "loaded_exams"
         ]
     progress = {}
     for inf in progress_info:
@@ -515,6 +578,7 @@ def render_work_page():
     if case is None:
         st.error("Не удалось загрузить данные пациента.")
         return
+    load_exams(case)
     st.markdown("""
         <style>
         button[data-baseweb="tab"] {
@@ -622,7 +686,7 @@ def _render_exams_stage(case):
     st.markdown("Отметьте обследования, которые хотите назначить:")
     st.divider()
 
-    exams = case.get("exams", [])
+    exams = st.session_state.loaded_exams
     if not exams:
         st.info("Для данного пациента обследований не предусмотрено.")
     else:
