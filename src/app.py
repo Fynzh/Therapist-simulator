@@ -208,8 +208,11 @@ def load_exams(case):
         exam_name = exam_norm["name"]
         if exam_name in case_exams_map:
             load_exam = case_exams_map[exam_name].copy()
-            if load_exam.get("type") == "table":
-                load_exam["info"] = _table_norm_generate(exam_norm["info"], case_exams_map[exam_name]["info"])
+            if load_exam.get("type") == "table" and exam_norm.get("type") == "table":
+                try:
+                    load_exam["info"] = _table_norm_generate(exam_norm["info"], case_exams_map[exam_name]["info"])
+                except:
+                    st.info(exam_norm["info"])
         else:
             load_exam = exam_norm.copy()
             if exam_norm.get("type") == "table":
@@ -285,6 +288,16 @@ def reset_work_state():
         if v in st.session_state:
             del st.session_state[v]
     _save_progress()
+
+def random_case(cases, stats):
+    allowed_cases = cases.copy()
+    for id, case in stats.items():
+        if case["is_correct"]:
+            allowed_cases.pop(id, None)
+    random_id = random.choice(list(allowed_cases.keys()))
+    st.session_state.in_work = True
+    st.session_state.work_id = random_id
+    st.session_state.page = "work"
 
 def _save_stat(case):
     exc_q = [x for x in st.session_state.excluded_q if x != 0]
@@ -604,27 +617,46 @@ def render_home_page():
                     key=f"case_btn_{id}",
                     width="content", 
                     disabled=True)
-            else:
-                btn_stat = lambda finish: "🔄   Еще раз" if finish else "📋   Начать"
+            elif id in stats:
+                btn_stat = lambda finish: "✅   Завершено" if finish else "🔄   Еще раз"
                 if st.button(
-                    f"{id:<3} | {full_name:^50} | {(str(case['age'])+" лет"):^30} | {btn_stat(id in stats):^30}".replace(" ", "\u00A0"),
+                    f"{id:<3} | {full_name:^50} | {(str(case['age'])+" лет"):^30} | {btn_stat(stats[id]["is_correct"]):^30}".replace(" ", "\u00A0"),
+                    key=f"case_btn_{id}",
+                    width="content", 
+                    disabled=stats[id]["is_correct"]):
+                    st.session_state.in_work = True
+                    st.session_state.work_id = id
+                    st.session_state.page = "work"
+                    st.rerun()
+            else:
+                if st.button(
+                    f"{id:<3} | {full_name:^50} | {(str(case['age'])+" лет"):^30} | {"📋   Начать":^30}".replace(" ", "\u00A0"),
                     key=f"case_btn_{id}",
                     width="content"):
                     st.session_state.in_work = True
                     st.session_state.work_id = id
                     st.session_state.page = "work"
                     st.rerun()
-                
+
         with col2:
             if id in stats:
                 st.markdown(f"**{stats[id]['total_score']}%**")
             else:
                 st.markdown("—")
+    
+    st.button(
+            "Случайный",
+            disabled=st.session_state.in_work, 
+            key="random_case",
+            on_click=random_case,
+            args=(cases, stats)
+        )
         
     st.divider()
     totals = []
     cases_count = len(cases) if cases else 0
     completed = len(stats)
+    less = cases_count - completed
     for id in stats:
         totals.append(stats[id]['total_score'])
     avg_score = (
@@ -633,7 +665,7 @@ def render_home_page():
     )
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric(label="Доступно кейсов", value=cases_count)
+        st.metric(label="Доступно кейсов", value=less)
     with col2:
         st.metric(label="Завершено", value=completed)
     with col3:
