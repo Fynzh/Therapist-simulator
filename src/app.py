@@ -843,7 +843,6 @@ def main():
             user_id = cm.get(cookie="therapist-simulator-uid")
             if user_id:
                 if _login_id(user_id):
-                    st.session_state.page = "home"
                     st.rerun()
                 else:
                     st.session_state.page = "auth"
