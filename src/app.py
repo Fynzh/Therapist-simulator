@@ -20,7 +20,6 @@ def anti_none():
         "user_f": None,
         "anim_dia": False,
         "top_qst": {},
-        "loaded_exams": []
         #"last_stat_id": None,
     }
     for key, value in defaults.items():
@@ -155,6 +154,9 @@ def load_case(path):
         return None
 
 def load_exams(case):
+    if "loaded_exams" in st.session_state:
+        return
+    st.session_state.loaded_exams = []
     exams_list = []
     exams_path = st.session_state.path["data"] / "exams_standart.json"
     if not exams_path.is_file():
@@ -214,10 +216,10 @@ def reset_work_state():
         "user_diagnosis": "",
         "in_work": False,
         "work_id": None,
-        "loaded_exams": [],
     }
     for_del = [
-        "dialog"
+        "dialog",
+        "loaded_exams"
     ]
     for k, v in for_reset.items():
         if k in st.session_state:
@@ -259,10 +261,12 @@ def _save_progress():
 def _load_progress():
     loads = _import("progress")
     try:
-        for key, value in loads.items():
-            if key not in st.session_state or not st.session_state[key] == value:
-                conv_val = convert_keys_to_int(value)
-                st.session_state[key] = conv_val
+        if loads:
+            for key, value in loads.items():
+                if key not in st.session_state or not st.session_state[key] == value:
+                    conv_val = convert_keys_to_int(value)
+                    st.session_state[key] = conv_val
+            return
     except:
         st.error("Ошибка загрузки предыдущей сессии")
 
@@ -686,31 +690,33 @@ def _render_exams_stage(case):
     st.markdown("Отметьте обследования, которые хотите назначить:")
     st.divider()
 
-    exams = st.session_state.loaded_exams
-    if not exams:
-        st.info("Для данного пациента обследований не предусмотрено.")
-    else:
-        ordered = list(st.session_state.ordered_exams)
-        for i, exam in enumerate(exams):
-            checked = exam["name"] in ordered
-            if st.checkbox(exam["name"], value=checked, key=f"exam_{i}"):
-                if exam["name"] not in ordered:
-                    ordered.append(exam["name"])
-            else:
-                if exam["name"] in ordered:
-                    ordered.remove(exam["name"])
-        st.session_state.ordered_exams = ordered
+    with st.container(border=True, height=400):
+        exams = st.session_state.loaded_exams
+        if not exams:
+            st.info("Для данного пациента обследований не предусмотрено.")
+        else:
+            ordered = list(st.session_state.ordered_exams)
+            for i, exam in enumerate(exams):
+                checked = exam in ordered
+                if st.checkbox(exam["name"], value=checked, key=f"exam_{i}"):
+                    if not checked:
+                        ordered.append(exam)
+                else:
+                    if checked:
+                        ordered.remove(exam)
+            st.session_state.ordered_exams = ordered
 
     st.divider()
-    col_back, _, col_next = st.columns(3)
+    col_back, col_next = st.columns(2)
     with col_back:
         if st.button("← Вернуться к опросу", type="secondary"):
             st.session_state.stage = "questions"
             st.rerun()
     with col_next:
-        if st.button("📋 Посмотреть результаты →", type="primary"):
-            st.session_state.stage = "diagnosis"
-            st.rerun()
+        with st.container(horizontal_alignment="right"):
+            if st.button("📋 Посмотреть результаты →", type="primary"):
+                st.session_state.stage = "diagnosis"
+                st.rerun()
 
 def _render_diagnosis_stage(case):
     st.divider()
@@ -722,12 +728,13 @@ def _render_diagnosis_stage(case):
             st.session_state.page = "home"
             st.rerun()
     with col2:
-        if st.button("🏁 Закончить прием", type="primary"):
-            _save_stat(case)
-            if _export(stats=st.session_state.current_stats):
-                reset_work_state()
-                st.session_state.page = "stats"
-                st.rerun()
+        with st.container(horizontal_alignment="right"):
+            if st.button("🏁 Закончить прием", type="primary"):
+                _save_stat(case)
+                if _export(stats=st.session_state.current_stats):
+                    reset_work_state()
+                    st.session_state.page = "stats"
+                    st.rerun()
 
 def render_settings_page():
     st.title("⚙️ Настройки")
