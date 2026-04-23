@@ -146,16 +146,8 @@ def _login(username) -> bool:
     return True
 
 def load_stats():
-    filepath = st.session_state.user_f
-    if filepath and filepath.exists():
-        try:
-            user_data = json.loads(filepath.read_text(encoding="utf-8"))
-            raw_stats = user_data.get("stats", {})
-            return {int(k): v for k, v in raw_stats.items() if k.isdigit()}
-        except (json.JSONDecodeError, IOError):
-            return {}
-    else:
-        return {}
+    raw_stats = _import(data = "stats")
+    return {int(k): v for k, v in raw_stats.items() if k.isdigit()}
 
 def load_cases() -> dict:
     cases_dict = {}
@@ -378,11 +370,11 @@ def convert_keys_to_int(data):
 
 def _export(**info) -> bool:
     filepath = st.session_state.user_f
+    
     if not filepath or not filepath.exists():
         st.error("Ошибка записи данных, пользователь не авторизован")
         _logout()
         return False
-    
     try:
         user_data = json.loads(filepath.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError):
@@ -390,10 +382,7 @@ def _export(**info) -> bool:
         _logout()
         return False
 
-    # 3. Записываем текущую статистику под ключом айди кейса
     for item, value in info.items():
-        if item not in user_data:
-            user_data[item] = {}
         user_data[item] = value
 
     # 4. Сохраняем файл обратно
